@@ -1,6 +1,6 @@
 import Foundation
 
-public struct Progress: Equatable, Sendable {
+public struct ReviewProgress: Equatable, Sendable {
     public let decided: Int
     public let total: Int
 
@@ -67,8 +67,8 @@ public enum Review {
         return next
     }
 
-    public static func progress(in state: AppState) -> Progress {
+    public static func progress(in state: AppState) -> ReviewProgress {
         let reviewable = state.accounts.filter(isReviewable)
-        return Progress(decided: reviewable.filter { $0.decision != .pending }.count, total: reviewable.count)
+        return ReviewProgress(decided: reviewable.filter { $0.decision != .pending }.count, total: reviewable.count)
     }
 }

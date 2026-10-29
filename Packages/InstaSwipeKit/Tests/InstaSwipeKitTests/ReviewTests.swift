@@ -142,6 +142,6 @@ struct ReviewTests {
             Fixtures.account("d", since: day(4), availability: .unavailable),
             Fixtures.account("e", since: day(5), stillInLatestExport: false)
         ])
-        #expect(Review.progress(in: state) == Progress(decided: 1, total: 3))
+        #expect(Review.progress(in: state) == ReviewProgress(decided: 1, total: 3))
     }
 }

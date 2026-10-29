@@ -27,7 +27,7 @@ import Testing
 @Test func encodingIsSortedAndUsesISO8601Dates() throws {
     let state = Fixtures.state([])
     let json = String(decoding: try StateCoding.encoder().encode(state), as: UTF8.self)
-    #expect(json.contains("\"savedAt\" : \"2023-11-14T22:13:20Z\""))
+    #expect(json.contains("\"savedAt\" : \"2023-11-14T22:13:20.000Z\""))
     let accountsIndex = try #require(json.range(of: "\"accounts\""))
     let schemaIndex = try #require(json.range(of: "\"schemaVersion\""))
     #expect(accountsIndex.lowerBound < schemaIndex.lowerBound)

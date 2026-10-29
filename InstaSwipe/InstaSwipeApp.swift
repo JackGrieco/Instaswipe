@@ -51,7 +51,7 @@ struct RootView: View {
             case .main:
                 mainTabs
             case .importer:
-                ImportView(model: model)
+                ExportTutorialView(model: model, context: .onboarding)
             }
         }
         .font(.outfit(16))

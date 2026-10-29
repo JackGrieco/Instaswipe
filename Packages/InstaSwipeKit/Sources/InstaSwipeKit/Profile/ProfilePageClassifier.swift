@@ -40,16 +40,17 @@ public enum ProfilePageClassifier {
         "Questa pagina non è disponibile"
     ]
 
-    static let loginPath = "/accounts/login"
-    static let rateLimitPaths = ["/challenge", "/accounts/suspended"]
+    /// Special paths matched on whole leading path segments, so usernames like `challenge_fan` don't collide.
+    static let loginPath = ["accounts", "login"]
+    static let rateLimitPaths = [["challenge"], ["accounts", "suspended"]]
     private static let nameSeparators = CharacterSet.whitespacesAndNewlines
         .union(CharacterSet(charactersIn: "•·|-–—"))
 
     public static func classify(_ snapshot: ProfilePageSnapshot, username: String) -> ProfilePageResult {
-        let path = snapshot.finalURL.path
-        if path.contains(loginPath) { return .loginRequired }
+        let segments = snapshot.finalURL.pathComponents.filter { $0 != "/" }
+        if segments.starts(with: loginPath) { return .loginRequired }
 
-        if rateLimitPaths.contains(where: path.contains) || contains(snapshot.bodyText, anyOf: rateLimitPhrases) {
+        if rateLimitPaths.contains(where: segments.starts(with:)) || contains(snapshot.bodyText, anyOf: rateLimitPhrases) {
             return .rateLimited
         }
 

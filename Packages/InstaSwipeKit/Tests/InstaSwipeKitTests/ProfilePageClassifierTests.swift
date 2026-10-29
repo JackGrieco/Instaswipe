@@ -112,3 +112,27 @@ func missingPagePhraseWithoutOgTitleIsUnavailable(phrase: String) {
     let result = ProfilePageClassifier.classify(snapshot(ogTitle: "Instagram"), username: "luca_diddi")
     #expect(result == .unrecognized)
 }
+
+@Test func usernameStartingWithChallengeIsStillAProfile() {
+    let result = ProfilePageClassifier.classify(
+        snapshot(path: "/challenge_fan/", ogTitle: "Fan (@challenge_fan) • Instagram"),
+        username: "challenge_fan"
+    )
+    #expect(result == .profile(displayName: "Fan", imageURL: nil))
+}
+
+@Test func challengePathWithQueryIsRateLimited() {
+    let result = ProfilePageClassifier.classify(
+        snapshot(path: "/challenge/?next=/luca_diddi/"),
+        username: "luca_diddi"
+    )
+    #expect(result == .rateLimited)
+}
+
+@Test func loginPathWithNextQueryIsLoginRequired() {
+    let result = ProfilePageClassifier.classify(
+        snapshot(path: "/accounts/login/?next=/luca_diddi/"),
+        username: "luca_diddi"
+    )
+    #expect(result == .loginRequired)
+}

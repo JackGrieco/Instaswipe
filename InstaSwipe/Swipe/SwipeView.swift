@@ -30,7 +30,10 @@ struct SwipeView: View {
         switch session.screen {
         case .finished:
             let counts = session.reviewCounts
-            SwipeEndView(kept: counts.kept, toRemove: counts.toRemove, gone: counts.gone, onShowToRemove: onShowToRemove)
+            SwipeEndView(
+                kept: counts.kept, toRemove: counts.toRemove, gone: counts.gone, onShowToRemove: onShowToRemove,
+                onShowEveryone: session.hasOthersToReview ? { session.isNotFollowingBackOnly = false } : nil
+            )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .overlay(alignment: .topTrailing) { SettingsButton().padding(.trailing, 20).padding(.top, 4) }
         case .limit(let status):

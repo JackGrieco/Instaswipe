@@ -28,12 +28,12 @@ struct SwipeCardScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            SwipeHeader(session: session)
+            SwipeHeader(session: session, isFilterLocked: isExiting)
                 .padding(.horizontal, 20)
                 .padding(.top, 4)
             deck
                 .padding(.horizontal, 16)
-                .padding(.top, 30)
+                .padding(.top, 20)
                 .padding(.bottom, 24)
             buttons
                 .padding(.bottom, 21)
@@ -195,9 +195,11 @@ struct SwipeCardScreen: View {
     }
 }
 
-/// Wordmark, today's profile budget and the overall progress bar.
+/// Wordmark, today's profile budget, the overall progress bar and the "Solo chi non ti segue" switch.
 private struct SwipeHeader: View {
-    let session: SwipeSession
+    @Bindable var session: SwipeSession
+    /// The flying card's decision lands on `session.current`: the queue must not change under it.
+    let isFilterLocked: Bool
 
     var body: some View {
         VStack(spacing: 10) {
@@ -222,6 +224,14 @@ private struct SwipeHeader: View {
                     .foregroundStyle(Theme.ink2)
                     .accessibilityIdentifier("progressLabel")
             }
+            Toggle(isOn: $session.isNotFollowingBackOnly.animation(.easeOut(duration: 0.2))) {
+                Label("Solo chi non ti segue", systemImage: "person.fill.xmark")
+                    .font(.outfit(14, .medium))
+                    .foregroundStyle(Theme.ink2)
+            }
+            .tint(Theme.pink)
+            .disabled(isFilterLocked)
+            .accessibilityIdentifier("notFollowingBackToggle")
         }
     }
 }

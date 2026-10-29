@@ -25,6 +25,8 @@ struct SwipeSessionTests {
 
     private func makeSession(
         limit: Int? = nil,
+        followers: Set<String> = [],
+        defaults: UserDefaults = UserDefaults(suiteName: UUID().uuidString)!,
         loader: ManualProfileLoader = ManualProfileLoader()
     ) throws -> (SwipeSession, AppModel, ManualProfileLoader) {
         let local = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -33,7 +35,8 @@ struct SwipeSessionTests {
         state.accounts = usernames.enumerated().map { index, name in
             FollowedAccount(
                 username: name, profileURL: URL(string: "https://www.instagram.com/_u/\(name)")!,
-                followedSince: Date(timeIntervalSince1970: 1_600_000_000 + Double(index))
+                followedSince: Date(timeIntervalSince1970: 1_600_000_000 + Double(index)),
+                followsMe: followers.contains(name)
             )
         }
         if let limit { state.dailyProfileLimit = limit }
@@ -43,7 +46,7 @@ struct SwipeSessionTests {
             useFakeProfiles: true, shouldSeedTestAccounts: false
         )
         let model = AppModel(environment: environment)
-        return (SwipeSession(model: model, loader: loader), model, loader)
+        return (SwipeSession(model: model, loader: loader, defaults: defaults), model, loader)
     }
 
     private func settle() async {
@@ -198,6 +201,71 @@ struct SwipeSessionTests {
 
         #expect(session.lastDecision == .remove)
         #expect(session.progressFraction == 0.2)
+    }
+
+    // MARK: "Solo chi non ti segue"
+
+    @Test func notFollowingBackOnlySkipsFollowersAndScopesProgress() async throws {
+        let (session, _, _) = try makeSession(followers: ["aa", "cc"])
+        #expect(session.current?.username == "aa")
+
+        session.isNotFollowingBackOnly = true
+
+        #expect(session.current?.username == "bb")
+        #expect(session.next?.username == "dd")
+        #expect(session.progressLabel == "0 / 3")
+        session.decide(.keep)
+        #expect(session.progressFraction == Double(1) / 3)
+    }
+
+    @Test func notFollowingBackOnlyIsRememberedAcrossSessions() async throws {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let (first, _, _) = try makeSession(followers: ["aa"], defaults: defaults)
+        #expect(!first.isNotFollowingBackOnly)
+        first.isNotFollowingBackOnly = true
+
+        let (second, _, _) = try makeSession(followers: ["aa"], defaults: defaults)
+        #expect(second.isNotFollowingBackOnly)
+        #expect(second.current?.username == "bb")
+    }
+
+    @Test func turningTheFilterOnLoadsTheNewVisibleProfiles() async throws {
+        let (session, _, loader) = try makeSession(followers: ["aa", "bb"])
+        session.start()
+        await settle()
+        loader.complete("aa", with: .profile(displayName: nil, imageURL: nil))
+        loader.complete("bb", with: .profile(displayName: nil, imageURL: nil))
+        await settle()
+        #expect(loader.calls == ["aa", "bb"])
+
+        session.isNotFollowingBackOnly = true
+        await settle()
+
+        #expect(loader.calls == ["aa", "bb", "cc", "dd"])
+    }
+
+    @Test func undoIgnoresDecisionsOutsideTheFilter() async throws {
+        let (session, model, _) = try makeSession(followers: ["aa"])
+        session.decide(.keep)
+        #expect(account("aa", in: model)?.decision == .keep)
+
+        session.isNotFollowingBackOnly = true
+
+        #expect(!session.canUndo)
+        session.undo()
+        #expect(account("aa", in: model)?.decision == .keep)
+    }
+
+    @Test func finishedWithFilterOffersTheOthersOnlyWhenSomeoneIsLeft() async throws {
+        let (session, _, _) = try makeSession(followers: ["aa", "bb", "cc", "dd", "ee"])
+        #expect(!session.hasOthersToReview)
+
+        session.isNotFollowingBackOnly = true
+
+        #expect(session.screen == .finished)
+        #expect(session.hasOthersToReview)
+        session.isNotFollowingBackOnly = false
+        #expect(!session.hasOthersToReview)
     }
 }
 

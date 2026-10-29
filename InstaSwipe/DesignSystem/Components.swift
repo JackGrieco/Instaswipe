@@ -46,6 +46,21 @@ struct GradientButtonStyle: ButtonStyle {
     }
 }
 
+/// Outlined capsule on the surface color: the secondary action of a full-screen state.
+struct OutlineCapsuleButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.outfit(16, .semibold))
+            .foregroundStyle(Theme.ink)
+            .padding(.horizontal, 24)
+            .frame(height: 50)
+            .background(Capsule().fill(Theme.surface))
+            .overlay(Capsule().strokeBorder(Theme.line, lineWidth: 1.5))
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+    }
+}
+
 /// Small round button that opens Impostazioni from any screen header.
 struct SettingsButton: View {
     @Environment(SettingsPresenter.self) private var settings

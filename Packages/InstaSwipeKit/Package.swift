@@ -9,6 +9,10 @@ let package = Package(
     ],
     targets: [
         .target(name: "InstaSwipeKit"),
-        .testTarget(name: "InstaSwipeKitTests", dependencies: ["InstaSwipeKit"])
+        .testTarget(
+            name: "InstaSwipeKitTests",
+            dependencies: ["InstaSwipeKit"],
+            resources: [.copy("Fixtures/state-v1.json")]
+        )
     ]
 )

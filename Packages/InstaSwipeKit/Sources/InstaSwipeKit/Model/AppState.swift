@@ -11,6 +11,9 @@ public struct DailyCount: Codable, Sendable, Equatable {
     }
 }
 
+/// Persisted to `state.json`. Schema evolution rule: files written by older versions must keep
+/// decoding. A new field must be optional, or be decoded with `decodeIfPresent` and a default.
+/// Bump `schemaVersion` only together with a migration. `Fixtures/state-v1.json` guards this.
 public struct AppState: Codable, Sendable, Equatable {
     public static let currentSchemaVersion = 1
 

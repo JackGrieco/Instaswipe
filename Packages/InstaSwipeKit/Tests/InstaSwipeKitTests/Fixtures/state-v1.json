@@ -1,0 +1,46 @@
+{
+  "accounts" : [
+    {
+      "availability" : "available",
+      "decidedAt" : "2023-11-14T22:13:30.250Z",
+      "decision" : "remove",
+      "displayName" : "Anna Fixture",
+      "followedSince" : "2017-07-14T02:40:00.000Z",
+      "followsMe" : false,
+      "profileURL" : "https:\/\/www.instagram.com\/_u\/fixture_anna",
+      "stillInLatestExport" : true,
+      "unfollowedAt" : "2023-11-14T23:13:20.000Z",
+      "unfollowedManually" : true,
+      "username" : "fixture_anna"
+    },
+    {
+      "availability" : "unknown",
+      "decidedAt" : "2023-11-14T22:13:40.000Z",
+      "decision" : "keep",
+      "followedSince" : "2019-02-12T19:33:20.000Z",
+      "followsMe" : true,
+      "profileURL" : "https:\/\/www.instagram.com\/_u\/fixture_bruno",
+      "stillInLatestExport" : true,
+      "unfollowedManually" : false,
+      "username" : "fixture_bruno"
+    },
+    {
+      "availability" : "unavailable",
+      "decision" : "pending",
+      "followsMe" : false,
+      "profileURL" : "https:\/\/www.instagram.com\/_u\/fixture_carla",
+      "stillInLatestExport" : false,
+      "unfollowedManually" : false,
+      "username" : "fixture_carla"
+    }
+  ],
+  "dailyProfileLimit" : 450,
+  "emergencyStopDay" : "2023-11-14T22:13:20.000Z",
+  "profileLoads" : {
+    "count" : 37,
+    "day" : "2023-11-14T22:13:20.000Z"
+  },
+  "savedAt" : "2023-11-15T00:13:20.000Z",
+  "schemaVersion" : 1,
+  "totalDecisionsMade" : 2
+}

@@ -4,6 +4,8 @@ public enum Decision: String, Codable, Sendable { case pending, keep, remove }
 
 public enum Availability: String, Codable, Sendable { case unknown, available, unavailable }
 
+/// Persisted inside `AppState`: same schema evolution rule (new fields optional or decoded with
+/// `decodeIfPresent` and a default; bump `AppState.schemaVersion` only with a migration).
 public struct FollowedAccount: Codable, Sendable, Equatable, Identifiable {
     public var id: String { username }
     public let username: String

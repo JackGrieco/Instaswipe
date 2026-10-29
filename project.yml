@@ -21,6 +21,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.giacomogrieco.InstaSwipe
+        # Qui e non nelle impostazioni del progetto: il preset di XcodeGen per le app iOS mette "1,2" sul target.
+        TARGETED_DEVICE_FAMILY: "1"
         INFOPLIST_FILE: InstaSwipe/Info.plist
         CODE_SIGN_ENTITLEMENTS: InstaSwipe/InstaSwipe.entitlements
         GENERATE_INFOPLIST_FILE: NO

@@ -18,7 +18,8 @@ struct ReportSessionTests {
         try FileStateStore(localDirectory: local, cloudDirectory: nil).save(state)
         let environment = AppEnvironment(
             localDirectory: local, cloudDirectory: nil, isUITesting: true,
-            useFakeProfiles: true, shouldSeedTestAccounts: false
+            useFakeProfiles: true, shouldSeedTestAccounts: false,
+            defaultsSuiteName: UUID().uuidString
         )
         let model = AppModel(environment: environment)
         var calendar = Calendar(identifier: .gregorian)

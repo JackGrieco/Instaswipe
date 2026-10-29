@@ -32,11 +32,16 @@ final class AppModel {
     private var pendingSnapshot: ExportSnapshot?
     /// Backup chosen by `prepareRestore()`, waiting for the user's confirmation.
     private(set) var pendingRestore: AppState?
+    /// The user reached the "wait for the email" phase and has not imported since.
+    private(set) var hasStartedExport: Bool
+    /// Bumped by every confirmed import, so a view can react to one finishing.
+    private(set) var confirmedImportCount = 0
 
     let isCloudAvailable: Bool
     let environment: AppEnvironment
 
     private let store: FileStateStore
+    private let tutorialProgress: TutorialProgressStore
     private let backups: BackupRotator
     private let now: @Sendable () -> Date
     /// Pending debounced mirror; replaced on every change.
@@ -62,6 +67,8 @@ final class AppModel {
         self.cloudProbe = cloudProbe
             ?? (environment.isUITesting || environment.cloudDirectory == nil ? nil : MetadataCloudStateProbe())
         isCloudAvailable = environment.cloudDirectory != nil
+        tutorialProgress = TutorialProgressStore(defaults: environment.defaults)
+        hasStartedExport = tutorialProgress.hasStartedExport
         store = FileStateStore(localDirectory: environment.localDirectory, cloudDirectory: environment.cloudDirectory)
         let backupsRoot = environment.cloudDirectory ?? environment.localDirectory
         backups = BackupRotator(directory: backupsRoot.appendingPathComponent("Backups", isDirectory: true))
@@ -329,7 +336,11 @@ final class AppModel {
         }
         let merged = MergeEngine.preview(current: state, snapshot: snapshot, now: now())
         // On failure the preview stays up so the error alert shows inside the sheet.
-        if persist(merged.state) { clearPendingImport() }
+        if persist(merged.state) {
+            clearPendingImport()
+            restartTutorial()
+            confirmedImportCount += 1
+        }
     }
 
     private func clearPendingImport() {
@@ -350,6 +361,19 @@ final class AppModel {
         case nil:
             return "Import non riuscito: \(error.localizedDescription)"
         }
+    }
+
+    // MARK: Export tutorial
+
+    func markExportStarted() {
+        tutorialProgress.markExportStarted()
+        hasStartedExport = true
+    }
+
+    /// Forgets the resume point: the tutorial opens on its first phase again.
+    func restartTutorial() {
+        tutorialProgress.reset()
+        hasStartedExport = false
     }
 
     // MARK: UI-test seed

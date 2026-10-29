@@ -13,6 +13,7 @@ final class SwipeSession {
     }
 
     static let maxLoadsInFlight = 2
+    static let scopeDefaultsKey = "swipeScope"
 
     private(set) var results: [String: ProfilePageResult] = [:]
     private(set) var inFlight: Set<String> = []
@@ -21,37 +22,60 @@ final class SwipeSession {
     var isLoginPresented = false
     var isLimitAlertPresented = false
     private(set) var profilePageURL: URL?
+    /// A view preference, not review data: kept in `UserDefaults`, outside `AppState` and its iCloud mirror.
+    private(set) var scope: ReviewScope {
+        didSet {
+            defaults.set(scope.rawValue, forKey: Self.scopeDefaultsKey)
+            loadVisibleProfiles()
+        }
+    }
 
     @ObservationIgnored private let model: AppModel
     @ObservationIgnored private let loader: any ProfileLoading
     @ObservationIgnored private let thumbnails: ThumbnailCache
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private let calendar: Calendar
+    @ObservationIgnored private let defaults: UserDefaults
 
     init(
         model: AppModel,
         loader: any ProfileLoading,
         thumbnails: ThumbnailCache = ThumbnailCache(),
         now: @escaping () -> Date = { Date() },
-        calendar: Calendar = .current
+        calendar: Calendar = .current,
+        defaults: UserDefaults = .standard
     ) {
         self.model = model
         self.loader = loader
         self.thumbnails = thumbnails
         self.now = now
         self.calendar = calendar
+        self.defaults = defaults
+        scope = defaults.string(forKey: Self.scopeDefaultsKey).flatMap(ReviewScope.init(rawValue:)) ?? .everyone
     }
 
     // MARK: State
 
-    var current: FollowedAccount? { model.state.flatMap { Review.current(in: $0) } }
+    /// The "Solo chi non ti segue" switch.
+    var isNotFollowingBackOnly: Bool {
+        get { scope == .notFollowingBack }
+        set { scope = newValue ? .notFollowingBack : .everyone }
+    }
+
+    /// The filter emptied the queue, but accounts that follow you back are still waiting.
+    var hasOthersToReview: Bool {
+        guard scope != .everyone, let state = model.state else { return false }
+        return Review.current(in: state) != nil
+    }
+
+    var current: FollowedAccount? { model.state.flatMap { Review.current(in: $0, scope: scope) } }
 
     var currentResult: ProfilePageResult? { current.flatMap { results[$0.username] } }
 
     /// The card waiting behind the current one.
     var next: FollowedAccount? {
         guard let state = model.state, let current else { return nil }
-        return Review.next(after: current.username, in: state)
+        return Review.next(after: current.username, in: state, scope: scope)
     }
 
     func imageURL(for username: String) -> URL? {
@@ -60,17 +84,15 @@ final class SwipeSession {
     }
 
     /// What `undo` would revert, so the card can come back from the side it left.
-    var lastDecision: Decision? { model.state.flatMap { Review.lastDecided(in: $0)?.decision } }
+    var lastDecision: Decision? { model.state.flatMap { Review.lastDecided(in: $0, scope: scope)?.decision } }
 
     var progressFraction: Double {
         guard let state = model.state else { return 0 }
-        let progress = Review.progress(in: state)
+        let progress = Review.progress(in: state, scope: scope)
         return progress.total > 0 ? Double(progress.decided) / Double(progress.total) : 0
     }
 
-    var canUndo: Bool {
-        model.state?.accounts.contains { $0.decision != .pending && $0.decidedAt != nil } ?? false
-    }
+    var canUndo: Bool { lastDecision != nil }
 
     var budgetStatus: BudgetStatus {
         guard let state = model.state else { return .limitReached }
@@ -94,7 +116,7 @@ final class SwipeSession {
     // MARK: Labels
 
     var progressLabel: String {
-        let progress = model.state.map { Review.progress(in: $0) } ?? ReviewProgress(decided: 0, total: 0)
+        let progress = model.state.map { Review.progress(in: $0, scope: scope) } ?? ReviewProgress(decided: 0, total: 0)
         return "\(Self.groupedNumber(progress.decided)) / \(Self.groupedNumber(progress.total))"
     }
 
@@ -133,7 +155,8 @@ final class SwipeSession {
     }
 
     func undo() {
-        model.apply { Review.undo(in: $0) }
+        let scope = scope
+        model.apply { Review.undo(in: $0, scope: scope) }
         loadVisibleProfiles()
     }
 
@@ -164,9 +187,9 @@ final class SwipeSession {
     }
 
     private func loadVisibleProfiles() {
-        guard !isOfflineSession, let state = model.state, let current = Review.current(in: state) else { return }
+        guard !isOfflineSession, let current, let state = model.state else { return }
         var visible = [current.username]
-        if let next = Review.next(after: current.username, in: state) { visible.append(next.username) }
+        if let next = Review.next(after: current.username, in: state, scope: scope) { visible.append(next.username) }
         for username in visible where results[username] == nil && !inFlight.contains(username) {
             guard inFlight.count < Self.maxLoadsInFlight, case .available = budgetStatus else { return }
             beginLoad(username)

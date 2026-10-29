@@ -209,4 +209,57 @@ struct ReviewTests {
         ])
         #expect(Review.progress(in: state) == ReviewProgress(decided: 1, total: 3))
     }
+
+    // MARK: Scope
+
+    private func mixedFollowers() -> AppState {
+        Fixtures.state([
+            Fixtures.account("a", since: day(1), followsMe: true),
+            Fixtures.account("b", since: day(2)),
+            Fixtures.account("c", since: day(3), followsMe: true),
+            Fixtures.account("d", since: day(4), decision: .keep),
+            Fixtures.account("e", since: day(5))
+        ])
+    }
+
+    @Test func notFollowingBackScopeSkipsFollowersInCurrentAndNext() {
+        let state = mixedFollowers()
+        #expect(Review.current(in: state, scope: .notFollowingBack)?.username == "b")
+        #expect(Review.next(after: "b", in: state, scope: .notFollowingBack)?.username == "e")
+        #expect(Review.next(after: "e", in: state, scope: .notFollowingBack) == nil)
+    }
+
+    @Test func everyoneScopeIsTheDefault() {
+        let state = mixedFollowers()
+        #expect(Review.current(in: state)?.username == "a")
+        #expect(Review.current(in: state, scope: .everyone)?.username == "a")
+    }
+
+    @Test func notFollowingBackScopeKeepsDoubtsThatDoNotFollowBack() {
+        let state = Fixtures.state([
+            Fixtures.account("a", since: day(1), decision: .unsure, followsMe: true),
+            Fixtures.account("b", since: day(2), decision: .unsure)
+        ])
+        #expect(Review.current(in: state, scope: .notFollowingBack)?.username == "b")
+    }
+
+    @Test func progressCountsOnlyTheScope() {
+        let state = mixedFollowers()
+        #expect(Review.progress(in: state, scope: .notFollowingBack) == ReviewProgress(decided: 1, total: 3))
+        #expect(Review.progress(in: state) == ReviewProgress(decided: 1, total: 5))
+    }
+
+    @Test func undoInScopeRevertsTheLatestDecisionInsideTheScope() {
+        let state = Fixtures.state([
+            Fixtures.account("a", since: day(1)),
+            Fixtures.account("b", since: day(2), followsMe: true)
+        ])
+        let first = Review.decide(.remove, username: "a", in: state, now: at(1))
+        let second = Review.decide(.keep, username: "b", in: first, now: at(2))
+
+        #expect(Review.lastDecided(in: second, scope: .notFollowingBack)?.username == "a")
+        let result = Review.undo(in: second, scope: .notFollowingBack)
+        #expect(account("a", in: result).decision == .pending)
+        #expect(account("b", in: result).decision == .keep)
+    }
 }

@@ -26,13 +26,7 @@ struct LimitReachedView: View {
             Text(profilesTodayLabel).padding(.top, 10)
             Text(progressLabel).padding(.top, 6)
             Button("Continua senza profili") { isConfirming = true }
-                .font(.outfit(16, .semibold))
-                .foregroundStyle(Theme.ink)
-                .padding(.horizontal, 24)
-                .frame(height: 50)
-                .background(Capsule().fill(Theme.surface))
-                .overlay(Capsule().strokeBorder(Theme.line, lineWidth: 1.5))
-                .buttonStyle(PressScaleButtonStyle())
+                .buttonStyle(OutlineCapsuleButtonStyle())
                 .padding(.top, 36)
         }
         .font(.outfit(15))
@@ -74,6 +68,8 @@ struct SwipeEndView: View {
     let toRemove: Int
     let gone: Int
     let onShowToRemove: () -> Void
+    /// Set when the "Solo chi non ti segue" filter emptied the queue while followers are still to review.
+    var onShowEveryone: (() -> Void)?
 
     @State private var hasBurst = false
 
@@ -86,6 +82,14 @@ struct SwipeEndView: View {
                 .foregroundStyle(Theme.ink)
                 .padding(.top, 22)
                 .riseIn(delay: 0.1)
+            if onShowEveryone != nil {
+                Text("Hai rivisto tutti quelli che non ti seguono.")
+                    .font(.outfit(15))
+                    .foregroundStyle(Theme.ink2)
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 8)
+                    .riseIn(delay: 0.15)
+            }
             HStack(spacing: 10) {
                 statTile(kept, label: "Tenuti", color: Theme.green)
                 statTile(toRemove, label: "Da togliere", color: Theme.red)
@@ -97,6 +101,13 @@ struct SwipeEndView: View {
                 .buttonStyle(GradientButtonStyle())
                 .padding(.top, 32)
                 .riseIn(delay: 0.3)
+            if let onShowEveryone {
+                Button("Mostra anche chi ti segue", action: onShowEveryone)
+                    .buttonStyle(OutlineCapsuleButtonStyle())
+                    .padding(.top, 14)
+                    .riseIn(delay: 0.35)
+                    .accessibilityIdentifier("showEveryoneButton")
+            }
         }
         .padding(.horizontal, 28)
     }

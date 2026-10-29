@@ -133,3 +133,56 @@ private func corrupt(_ directory: URL) throws {
         #expect(try store.load() == state(savedAt: 9))
     }
 }
+
+private func placeholder(_ cloud: URL) throws -> URL {
+    try FileManager.default.createDirectory(at: cloud, withIntermediateDirectories: true)
+    let url = cloud.appendingPathComponent(".state.json.icloud")
+    try Data("placeholder".utf8).write(to: url)
+    return url
+}
+
+@Test func cloudPlaceholderWithoutLocalThrowsNotDownloaded() throws {
+    try withTempDirs { local, cloud in
+        let marker = try placeholder(cloud)
+        let store = FileStateStore(localDirectory: local, cloudDirectory: cloud)
+        #expect(throws: StateStoreError.cloudNotDownloaded) { try store.load() }
+        #expect(try Data(contentsOf: marker) == Data("placeholder".utf8))
+        #expect(!FileManager.default.fileExists(atPath: local.appendingPathComponent("state.json").path))
+    }
+}
+
+@Test func cloudPlaceholderWithCorruptLocalThrowsNotDownloaded() throws {
+    try withTempDirs { local, cloud in
+        _ = try placeholder(cloud)
+        try corrupt(local)
+        let store = FileStateStore(localDirectory: local, cloudDirectory: cloud)
+        #expect(throws: StateStoreError.cloudNotDownloaded) { try store.load() }
+    }
+}
+
+@Test func cloudPlaceholderWithValidLocalReturnsLocal() throws {
+    try withTempDirs { local, cloud in
+        let marker = try placeholder(cloud)
+        let store = FileStateStore(localDirectory: local, cloudDirectory: cloud)
+        try store.save(state(savedAt: 5))
+        #expect(try store.load() == state(savedAt: 5))
+        #expect(FileManager.default.fileExists(atPath: marker.path))
+    }
+}
+
+@Test func loadKeepsThrowingCorruptedAfterQuarantine() throws {
+    try withTempDirs { local, _ in
+        let store = FileStateStore(localDirectory: local, cloudDirectory: nil)
+        try corrupt(local)
+        var first: [URL] = []
+        do { _ = try store.load() } catch let StateStoreError.corrupted(urls) { first = urls }
+        #expect(first.count == 1)
+        do {
+            _ = try store.load()
+            Issue.record("expected StateStoreError.corrupted")
+        } catch let StateStoreError.corrupted(urls) {
+            #expect(urls == first)
+        }
+        #expect(names(local).count == 1)
+    }
+}

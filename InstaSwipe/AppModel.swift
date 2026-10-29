@@ -18,7 +18,8 @@ final class AppModel {
     private(set) var bannerMessage: String?
     /// Blocking-but-dismissable message (save or import failure).
     var errorMessage: String?
-    var pendingMerge: MergePreview?
+    private(set) var pendingMerge: MergePreview?
+    private var pendingSnapshot: ExportSnapshot?
 
     let isCloudAvailable: Bool
     let environment: AppEnvironment
@@ -150,43 +151,60 @@ final class AppModel {
 
     // MARK: Import
 
-    func prepareImport(folder: URL) async {
+    /// `picked` is either one folder or the JSON files chosen in the Files picker.
+    func prepareImport(picked: [URL]) async {
         guard loadError == nil, !isWaitingForCloud else { return }
-        let isScoped = folder.startAccessingSecurityScopedResource()
-        defer { if isScoped { folder.stopAccessingSecurityScopedResource() } }
+        let scoped = picked.filter { $0.startAccessingSecurityScopedResource() }
+        defer { scoped.forEach { $0.stopAccessingSecurityScopedResource() } }
 
         let result = await Task.detached(priority: .userInitiated) {
-            Result {
-                let files = try ExportLocator.locate(in: folder)
-                return try ExportLocator.load(files)
-            }
+            Result { try Self.loadSnapshot(from: picked) }
         }.value
         switch result {
         case .success(let snapshot):
+            pendingSnapshot = snapshot
             pendingMerge = MergeEngine.preview(current: state, snapshot: snapshot, now: now())
         case .failure(let error):
             errorMessage = Self.importMessage(for: error)
         }
     }
 
+    private nonisolated static func loadSnapshot(from picked: [URL]) throws -> ExportSnapshot {
+        let files: ExportFiles
+        if picked.count == 1, picked[0].hasDirectoryPath {
+            files = try ExportLocator.locate(in: picked[0])
+        } else {
+            files = try ExportLocator.classify(picked)
+        }
+        return try ExportLocator.load(files)
+    }
+
+    /// Re-merges the picked snapshot into the CURRENT state, so decisions made after the
+    /// preview was computed are never overwritten.
     func confirmImport() {
-        guard let preview = pendingMerge, loadError == nil, !isWaitingForCloud else { return }
+        guard let snapshot = pendingSnapshot, loadError == nil, !isWaitingForCloud else { return }
         if let current = state {
             do {
                 try backups.backup(current, kind: .preImport, now: now())
             } catch {
                 Self.logger.error("Pre-import backup failed: \(error.localizedDescription)")
                 errorMessage = "Import annullato: non sono riuscito a fare la copia di sicurezza (\(error.localizedDescription))."
-                pendingMerge = nil
+                clearPendingImport()
                 return
             }
         }
+        let merged = MergeEngine.preview(current: state, snapshot: snapshot, now: now())
+        clearPendingImport()
+        persist(merged.state)
+    }
+
+    private func clearPendingImport() {
         pendingMerge = nil
-        persist(preview.state)
+        pendingSnapshot = nil
     }
 
     func cancelImport() {
-        pendingMerge = nil
+        clearPendingImport()
     }
 
     private static func importMessage(for error: Error) -> String {

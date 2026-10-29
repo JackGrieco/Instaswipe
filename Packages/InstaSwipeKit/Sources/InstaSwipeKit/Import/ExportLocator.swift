@@ -28,7 +28,12 @@ public enum ExportLocator {
             at: folder, includingPropertiesForKeys: [.isRegularFileKey]
         ) else { throw ExportParserError.followingNotFound }
 
-        let files = enumerator.compactMap { $0 as? URL }.filter { $0.pathExtension.lowercased() == "json" }
+        return try classify(enumerator.compactMap { $0 as? URL })
+    }
+
+    /// Sorts JSON file URLs into following / followers by file name (same rules as `locate`).
+    public static func classify(_ urls: [URL]) throws -> ExportFiles {
+        let files = urls.filter { $0.pathExtension.lowercased() == "json" }
         let following = files.filter {
             let name = $0.lastPathComponent.lowercased()
             return name.hasPrefix("following") && !excludedFollowingNames.contains(name)

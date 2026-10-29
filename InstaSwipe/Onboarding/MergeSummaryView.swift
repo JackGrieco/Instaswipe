@@ -20,6 +20,7 @@ struct MergeSummaryView: View {
                 LabeledContent("Segnati come già tolti", value: "\(summary.autoMarkedDone)")
                 LabeledContent("Account totali dopo l'import", value: "\(preview.state.accounts.count)")
             }
+            .errorAlert(model)
             .navigationTitle("Riepilogo import")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

@@ -42,15 +42,7 @@ struct RootView: View {
                 ImportView(model: model)
             }
         }
-        .alert("Attenzione", isPresented: errorBinding) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(model.errorMessage ?? "")
-        }
-    }
-
-    private var errorBinding: Binding<Bool> {
-        Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })
+        .errorAlert(model, isActive: !isShowingSettings && model.pendingMerge == nil)
     }
 
     private var mainTabs: some View {

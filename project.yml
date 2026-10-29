@@ -26,6 +26,17 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "1"
+  InstaSwipeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [InstaSwipeTests]
+    dependencies:
+      - target: InstaSwipe
+      - package: InstaSwipeKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.giacomogrieco.InstaSwipeTests
+        GENERATE_INFOPLIST_FILE: YES
   InstaSwipeUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -44,4 +55,4 @@ schemes:
       targets:
         InstaSwipe: all
     test:
-      targets: [InstaSwipeUITests]
+      targets: [InstaSwipeTests, InstaSwipeUITests]

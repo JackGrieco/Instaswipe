@@ -27,6 +27,21 @@ struct ExportLocatorTests {
         #expect(files.followers.map(\.lastPathComponent) == ["followers_1.json"])
     }
 
+    @Test func classifyPickedFilesByName() throws {
+        let urls = ["following_2.json", "following.json", "following_hashtags.json", "followers_1.json", "other.json"]
+            .map { URL(fileURLWithPath: "/picked/\($0)") }
+        let files = try ExportLocator.classify(urls)
+        #expect(files.following.map(\.lastPathComponent) == ["following.json", "following_2.json"])
+        #expect(files.followers.map(\.lastPathComponent) == ["followers_1.json"])
+    }
+
+    @Test func classifyThrowsWithoutFollowingFile() {
+        let urls = [URL(fileURLWithPath: "/picked/followers_1.json")]
+        #expect(throws: ExportParserError.followingNotFound) {
+            try ExportLocator.classify(urls)
+        }
+    }
+
     @Test func locateThrowsWhenNoFollowing() throws {
         let root = try makeFolder()
         defer { try? FileManager.default.removeItem(at: root) }

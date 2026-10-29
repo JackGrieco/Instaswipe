@@ -14,9 +14,10 @@ struct SettingsView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { Button("Fine") { dismiss() } }
             }
-            .fileImporter(isPresented: $isImporting, allowedContentTypes: ExportPicker.contentTypes) { result in
+            .fileImporter(isPresented: $isImporting, allowedContentTypes: ExportPicker.contentTypes, allowsMultipleSelection: true) { result in
                 ExportPicker.handle(result, model: model)
             }
+            .errorAlert(model, isActive: model.pendingMerge == nil)
             .sheet(isPresented: pendingBinding) {
                 if let preview = model.pendingMerge {
                     MergeSummaryView(model: model, preview: preview)

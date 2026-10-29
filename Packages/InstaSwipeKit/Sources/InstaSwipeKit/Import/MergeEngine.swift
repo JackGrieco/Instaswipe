@@ -39,10 +39,7 @@ public enum MergeEngine {
         let updated = base.accounts.map { account -> FollowedAccount in
             var next = account
             if exportedUsernames.contains(account.username) {
-                next.stillInLatestExport = true
-                next.followsMe = snapshot.followers.contains(account.username)
-                if next.availability == .unavailable { next.availability = .unknown }
-                return next
+                return refreshed(account, followsMe: snapshot.followers.contains(account.username))
             }
             if account.stillInLatestExport { noLongerFollowed += 1 }
             next.stillInLatestExport = false
@@ -75,5 +72,19 @@ public enum MergeEngine {
             isSuspicious: Double(noLongerFollowed) > Limits.reimportSuspiciousRatio * Double(activeBefore)
         )
         return MergePreview(state: state, summary: summary)
+    }
+
+    /// An account present in the export. If it was missing before and had been auto-marked
+    /// done (no `unfollowedAt` date), the unfollow clearly did not happen: it returns to "to do".
+    private static func refreshed(_ account: FollowedAccount, followsMe: Bool) -> FollowedAccount {
+        var next = account
+        let isAutoDone = account.decision == .remove && account.unfollowedManually && account.unfollowedAt == nil
+        if !account.stillInLatestExport && isAutoDone {
+            next.unfollowedManually = false
+        }
+        next.stillInLatestExport = true
+        next.followsMe = followsMe
+        if next.availability == .unavailable { next.availability = .unknown }
+        return next
     }
 }

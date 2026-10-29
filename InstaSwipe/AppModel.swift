@@ -163,6 +163,9 @@ final class AppModel {
             Result { try Self.loadSnapshot(from: picked) }
         }.value
         switch result {
+        case .success(let snapshot) where snapshot.follows.isEmpty:
+            clearPendingImport()
+            errorMessage = "L'export non contiene account seguiti."
         case .success(let snapshot):
             pendingSnapshot = snapshot
             pendingMerge = MergeEngine.preview(current: state, snapshot: snapshot, now: now())

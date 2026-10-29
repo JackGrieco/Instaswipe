@@ -122,6 +122,42 @@ struct MergeEngineTests {
         #expect(preview.summary.noLongerFollowed == 0)
     }
 
+    @Test func reappearingAutoDoneAccountReturnsToDo() {
+        let autoDone = Fixtures.account(
+            "a", since: Self.day(1), decision: .remove, unfollowedManually: true, stillInLatestExport: false
+        )
+
+        let preview = MergeEngine.preview(current: Fixtures.state([autoDone]), snapshot: Self.snapshot([Self.follow("a", 1)]), now: Self.now)
+
+        let account = preview.state.accounts[0]
+        #expect(account.decision == .remove)
+        #expect(account.unfollowedManually == false)
+        #expect(account.unfollowedAt == nil)
+        #expect(account.stillInLatestExport == true)
+    }
+
+    @Test func reappearingManuallyDoneAccountStaysDone() {
+        var manualDone = Fixtures.account(
+            "a", since: Self.day(1), decision: .remove, unfollowedManually: true, stillInLatestExport: false
+        )
+        manualDone.unfollowedAt = Self.day(9)
+
+        let preview = MergeEngine.preview(current: Fixtures.state([manualDone]), snapshot: Self.snapshot([Self.follow("a", 1)]), now: Self.now)
+
+        #expect(preview.state.accounts[0].unfollowedManually == true)
+        #expect(preview.state.accounts[0].unfollowedAt == Self.day(9))
+    }
+
+    @Test func autoDoneStillInExportIsNotReset() {
+        let autoDoneStillActive = Fixtures.account("a", since: Self.day(1), decision: .remove, unfollowedManually: true)
+
+        let preview = MergeEngine.preview(
+            current: Fixtures.state([autoDoneStillActive]), snapshot: Self.snapshot([Self.follow("a", 1)]), now: Self.now
+        )
+
+        #expect(preview.state.accounts[0].unfollowedManually == true)
+    }
+
     @Test func emptyActiveSetIsNeverSuspicious() {
         let current = Fixtures.state([Fixtures.account("a", since: Self.day(1), stillInLatestExport: false)])
 

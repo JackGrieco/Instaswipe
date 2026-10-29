@@ -134,4 +134,18 @@ struct AppModelTests {
         model.confirmImport()
         #expect(model.state?.accounts.map(\.username) == ["x"])
     }
+
+    @Test func exportWithoutFollowsIsRefused() async throws {
+        let local = try makeDirectory()
+        try seedState(in: local, accounts: ["a"])
+        let model = AppModel(environment: environment(local: local))
+        let before = try #require(model.state)
+
+        await model.prepareImport(picked: [try makeExport([])])
+
+        #expect(model.pendingMerge == nil)
+        #expect(model.errorMessage == "L'export non contiene account seguiti.")
+        model.confirmImport()
+        #expect(model.state == before)
+    }
 }

@@ -20,7 +20,8 @@ struct InstaSwipeApp: App {
                 model = AppModel(environment: await AppEnvironment.resolve())
             }
             .onChange(of: scenePhase) { _, phase in
-                if phase == .background { model?.flushCloudMirror() }
+                guard phase == .background, let model else { return }
+                Task { await model.flushCloudMirror() }
             }
         }
     }

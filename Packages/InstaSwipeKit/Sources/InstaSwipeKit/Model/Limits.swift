@@ -12,4 +12,5 @@ public enum Limits {
     public static let backupEveryDecisions = 100
     public static let preImportBackupsKept = 5
     public static let cloudMirrorDebounce: Duration = .seconds(5)
+    public static let cloudMirrorMaxWait: Duration = .seconds(30)
 }

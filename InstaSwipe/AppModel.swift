@@ -29,7 +29,11 @@ final class AppModel {
     private let store: FileStateStore
     private let backups: BackupRotator
     private let now: @Sendable () -> Date
+    /// Pending debounced mirror; replaced on every change.
     private var mirrorTask: Task<Void, Never>?
+    /// Last started iCloud write: each write waits for it, so writes never overlap or reorder.
+    private var mirrorWriteTask: Task<Result<Void, any Error>, Never>?
+    private var firstUnmirroredChange: ContinuousClock.Instant?
     private var cloudRetryTask: Task<Void, Never>?
 
     init(environment: AppEnvironment, now: @escaping @Sendable () -> Date = { Date() }) {
@@ -88,7 +92,9 @@ final class AppModel {
         loadError = nil
         isWaitingForCloud = false
         state = loaded
-        if loaded == nil, environment.shouldSeedTestAccounts {
+        if loaded != nil {
+            scheduleCloudMirror()
+        } else if environment.shouldSeedTestAccounts {
             seedTestAccounts()
         }
     }
@@ -163,32 +169,43 @@ final class AppModel {
 
     // MARK: Cloud mirror
 
+    /// Debounced, but never later than `Limits.cloudMirrorMaxWait` after the first unmirrored change.
     private func scheduleCloudMirror() {
         guard isCloudAvailable else { return }
+        let changedAt = ContinuousClock.now
+        let firstChange = firstUnmirroredChange ?? changedAt
+        firstUnmirroredChange = firstChange
+        let fireAt = MirrorSchedule.fireInstant(lastChange: changedAt, firstUnmirroredChange: firstChange)
         mirrorTask?.cancel()
         mirrorTask = Task { [weak self] in
-            try? await Task.sleep(for: Limits.cloudMirrorDebounce)
+            try? await Task.sleep(until: fireAt, clock: .continuous)
             guard !Task.isCancelled else { return }
             await self?.mirrorLatestState()
         }
     }
 
     /// Cancels the debounce and mirrors right away (call when the app goes to background).
-    func flushCloudMirror() {
+    /// Runs inside a background task so the write can finish after the app is suspended.
+    func flushCloudMirror() async {
         guard isCloudAvailable else { return }
         mirrorTask?.cancel()
-        mirrorTask = Task { [weak self] in
-            await self?.mirrorLatestState()
-        }
+        let activity = BackgroundActivity(name: "iCloudMirror")
+        await mirrorLatestState()
+        activity.end()
     }
 
+    /// Writes are chained: each waits for the previous one, so the latest state is written last.
     private func mirrorLatestState() async {
         guard loadError == nil, let snapshot = state else { return }
+        firstUnmirroredChange = nil
+        let previous = mirrorWriteTask
         let store = store
-        let result = await Task.detached(priority: .utility) {
-            Result { try store.mirrorToCloud(snapshot) }
-        }.value
-        if case .failure(let error) = result {
+        let write = Task.detached(priority: .utility) {
+            _ = await previous?.value
+            return Result { try store.mirrorToCloud(snapshot) }
+        }
+        mirrorWriteTask = write
+        if case .failure(let error) = await write.value {
             Self.logger.error("Cloud mirror failed: \(error.localizedDescription)")
             bannerMessage = "Copia su iCloud non riuscita: \(error.localizedDescription)"
         }

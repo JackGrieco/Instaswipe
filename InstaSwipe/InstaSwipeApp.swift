@@ -26,9 +26,12 @@ struct InstaSwipeApp: App {
     }
 }
 
+enum RootTab: Hashable { case swipe, toRemove }
+
 struct RootView: View {
     @Bindable var model: AppModel
     @State private var isShowingSettings = false
+    @State private var selectedTab = RootTab.swipe
 
     var body: some View {
         Group {
@@ -49,9 +52,13 @@ struct RootView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 banners
-                TabView {
-                    Text("Swipe").tabItem { Label("Swipe", systemImage: "hand.draw") }
-                    Text("Da togliere").tabItem { Label("Da togliere", systemImage: "person.badge.minus") }
+                TabView(selection: $selectedTab) {
+                    SwipeView(model: model) { selectedTab = .toRemove }
+                        .tabItem { Label("Swipe", systemImage: "hand.draw") }
+                        .tag(RootTab.swipe)
+                    Text("Da togliere")
+                        .tabItem { Label("Da togliere", systemImage: "person.badge.minus") }
+                        .tag(RootTab.toRemove)
                 }
             }
             .toolbar {

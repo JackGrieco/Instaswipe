@@ -16,17 +16,29 @@ public enum Review {
         account.stillInLatestExport && account.availability != .unavailable
     }
 
-    private static func isPendingInQueue(_ account: FollowedAccount) -> Bool {
-        account.decision == .pending && isReviewable(account)
+    /// Swipe order: pending accounts in list order, then the doubts, least recently doubted first.
+    private static func queue(in state: AppState) -> [FollowedAccount] {
+        let reviewable = state.accounts.filter(isReviewable)
+        let pending = reviewable.filter { $0.decision == .pending }
+        let unsure = reviewable.enumerated()
+            .filter { $0.element.decision == .unsure }
+            .sorted { lhs, rhs in
+                let lhsDate = lhs.element.decidedAt ?? .distantPast
+                let rhsDate = rhs.element.decidedAt ?? .distantPast
+                return lhsDate == rhsDate ? lhs.offset < rhs.offset : lhsDate < rhsDate
+            }
+            .map(\.element)
+        return pending + unsure
     }
 
     public static func current(in state: AppState) -> FollowedAccount? {
-        state.accounts.first(where: isPendingInQueue)
+        queue(in: state).first
     }
 
     public static func next(after username: String, in state: AppState) -> FollowedAccount? {
-        guard let index = state.accounts.firstIndex(where: { $0.username == username }) else { return nil }
-        return state.accounts[(index + 1)...].first(where: isPendingInQueue)
+        let queue = queue(in: state)
+        guard let index = queue.firstIndex(where: { $0.username == username }), index + 1 < queue.count else { return nil }
+        return queue[index + 1]
     }
 
     /// Any decision other than `.remove` also clears the "unfollowed" tick, so swipe and list agree.
@@ -43,20 +55,29 @@ public enum Review {
         return next
     }
 
+    /// The account `undo` would revert: the most recent decision.
+    public static func lastDecided(in state: AppState) -> FollowedAccount? {
+        lastDecidedIndex(in: state).map { state.accounts[$0] }
+    }
+
     public static func undo(in state: AppState) -> AppState {
-        var latestIndex: Int?
-        for (index, account) in state.accounts.enumerated() {
-            guard account.decision != .pending, let decidedAt = account.decidedAt else { continue }
-            if let best = latestIndex, let bestDate = state.accounts[best].decidedAt, decidedAt < bestDate { continue }
-            latestIndex = index // ties resolve to the later account in order
-        }
-        guard let index = latestIndex else { return state }
+        guard let index = lastDecidedIndex(in: state) else { return state }
         var next = state
         next.accounts[index].decision = .pending
         next.accounts[index].decidedAt = nil
         next.accounts[index].unfollowedManually = false
         next.accounts[index].unfollowedAt = nil
         return next
+    }
+
+    private static func lastDecidedIndex(in state: AppState) -> Int? {
+        var latestIndex: Int?
+        for (index, account) in state.accounts.enumerated() {
+            guard account.decision != .pending, let decidedAt = account.decidedAt else { continue }
+            if let best = latestIndex, let bestDate = state.accounts[best].decidedAt, decidedAt < bestDate { continue }
+            latestIndex = index // ties resolve to the later account in order
+        }
+        return latestIndex
     }
 
     public static func markAvailability(
@@ -74,6 +95,7 @@ public enum Review {
 
     public static func progress(in state: AppState) -> ReviewProgress {
         let reviewable = state.accounts.filter(isReviewable)
-        return ReviewProgress(decided: reviewable.filter { $0.decision != .pending }.count, total: reviewable.count)
+        let decided = reviewable.filter { $0.decision == .keep || $0.decision == .remove }.count
+        return ReviewProgress(decided: decided, total: reviewable.count)
     }
 }

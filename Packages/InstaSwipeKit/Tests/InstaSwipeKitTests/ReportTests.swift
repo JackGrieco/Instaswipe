@@ -20,7 +20,9 @@ import Foundation
             Fixtures.account("gone", since: nil, decision: .remove, availability: .unavailable),
             Fixtures.account("goneExport", since: nil, decision: .keep, availability: .unavailable, stillInLatestExport: false),
             luca,
-            Fixtures.account("pending", since: nil)
+            Fixtures.account("pending", since: nil),
+            Fixtures.account("doubt", since: nil, decision: .unsure),
+            Fixtures.account("goneDoubt", since: nil, decision: .unsure, availability: .unavailable)
         ])
     }
 
@@ -32,13 +34,14 @@ import Foundation
     @Test func doneGoneAndKeptFiltersApply() {
         let state = Self.mixedState
         #expect(Self.usernames(Report.accounts(.done, search: "", in: state)) == ["done"])
-        #expect(Self.usernames(Report.accounts(.gone, search: "", in: state)) == ["gone"])
+        #expect(Self.usernames(Report.accounts(.gone, search: "", in: state)) == ["gone", "goneDoubt"])
         #expect(Self.usernames(Report.accounts(.kept, search: "", in: state)) == ["goneExport", "luca_x"])
+        #expect(Self.usernames(Report.accounts(.unsure, search: "", in: state)) == ["doubt"])
     }
 
     @Test func countsMatchFilters() {
         let counts = Report.counts(in: Self.mixedState)
-        #expect(counts == [.toDo: 1, .done: 1, .gone: 1, .kept: 2])
+        #expect(counts == [.toDo: 1, .unsure: 1, .done: 1, .gone: 2, .kept: 2])
     }
 
     @Test func searchIgnoresFilterAndMatchesDisplayNameWithoutAccents() {

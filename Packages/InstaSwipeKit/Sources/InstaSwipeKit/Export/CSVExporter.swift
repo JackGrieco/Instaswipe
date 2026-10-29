@@ -32,6 +32,7 @@ public enum CSVExporter {
         case .pending: "da decidere"
         case .keep: "tengo"
         case .remove: "tolgo"
+        case .unsure: "in dubbio"
         }
     }
 

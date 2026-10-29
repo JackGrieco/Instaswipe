@@ -63,6 +63,9 @@ struct ReportSessionTests {
         #expect(session.label(for: .done) == "Fatti (1)")
         #expect(session.label(for: .gone) == "Spariti (1)")
         #expect(session.label(for: .kept) == "Tenuti (1)")
+        #expect(session.label(for: .unsure) == "Dubbi (0)")
+        #expect(ReportSession.title(for: .unsure) == "Dubbi")
+        #expect(session.count(for: .toDo) == 1)
         session.filter = .kept
         #expect(session.rows.map(\.username) == ["cc"])
     }

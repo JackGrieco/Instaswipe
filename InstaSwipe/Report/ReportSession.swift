@@ -40,14 +40,18 @@ final class ReportSession {
         model.state.map { Report.accounts(filter, search: searchText, in: $0) } ?? []
     }
 
-    func label(for filter: ReportFilter) -> String {
-        let count = model.state.map { Report.counts(in: $0)[filter] ?? 0 } ?? 0
-        return "\(Self.title(for: filter)) (\(count))"
+    func count(for filter: ReportFilter) -> Int {
+        model.state.map { Report.counts(in: $0)[filter] ?? 0 } ?? 0
     }
 
-    private static func title(for filter: ReportFilter) -> String {
+    func label(for filter: ReportFilter) -> String {
+        "\(Self.title(for: filter)) (\(count(for: filter)))"
+    }
+
+    static func title(for filter: ReportFilter) -> String {
         switch filter {
         case .toDo: "Da fare"
+        case .unsure: "Dubbi"
         case .done: "Fatti"
         case .gone: "Spariti"
         case .kept: "Tenuti"

@@ -18,12 +18,14 @@ import Foundation
         let accounts = [
             Fixtures.account("mario", since: since, decision: .remove, followsMe: true, unfollowedManually: true),
             Fixtures.account("anna", since: nil, decision: .keep),
-            Fixtures.account("zed", since: nil)
+            Fixtures.account("zed", since: nil),
+            Fixtures.account("ugo", since: nil, decision: .unsure)
         ]
         let lines = CSVExporter.csv(for: accounts).components(separatedBy: "\n")
         #expect(lines[1] == "mario,https://www.instagram.com/_u/mario,2024-03-05,tolgo,sì,sì")
         #expect(lines[2] == "anna,https://www.instagram.com/_u/anna,,tengo,no,no")
         #expect(lines[3] == "zed,https://www.instagram.com/_u/zed,,da decidere,no,no")
-        #expect(lines.count == 4)
+        #expect(lines[4] == "ugo,https://www.instagram.com/_u/ugo,,in dubbio,no,no")
+        #expect(lines.count == 5)
     }
 }

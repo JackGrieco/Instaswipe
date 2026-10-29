@@ -154,6 +154,51 @@ struct SwipeSessionTests {
         #expect(session.profilesTodayLabel == "Profili oggi: 0 / 400")
         #expect(SwipeSession.groupedNumber(1240) == "1.240")
     }
+
+    @Test func nextIsTheCardBehindTheCurrentOne() async throws {
+        let (session, _, _) = try makeSession()
+        #expect(session.next?.username == "bb")
+        session.decide(.keep)
+        #expect(session.next?.username == "cc")
+    }
+
+    @Test func imageURLComesFromTheLoadedProfile() async throws {
+        let (session, _, loader) = try makeSession()
+        let url = URL(string: "https://example.com/bb.jpg")!
+        session.start()
+        await settle()
+
+        loader.complete("bb", with: .profile(displayName: "B", imageURL: url))
+        await settle()
+
+        #expect(session.imageURL(for: "bb") == url)
+        #expect(session.imageURL(for: "aa") == nil)
+    }
+
+    @Test func unsureCardComesBackAfterTheOthers() async throws {
+        let (session, _, _) = try makeSession()
+
+        #expect(session.decide(.unsure))
+        #expect(session.current?.username == "bb")
+        for _ in 0..<4 { session.decide(.keep) }
+
+        #expect(session.current?.username == "aa")
+        #expect(session.decide(.unsure))
+        #expect(session.current?.username == "aa")
+        #expect(session.decide(.remove))
+        #expect(session.screen == .finished)
+    }
+
+    @Test func lastDecisionAndProgressFollowTheDecisions() async throws {
+        let (session, _, _) = try makeSession()
+        #expect(session.lastDecision == nil)
+        #expect(session.progressFraction == 0)
+
+        session.decide(.remove)
+
+        #expect(session.lastDecision == .remove)
+        #expect(session.progressFraction == 0.2)
+    }
 }
 
 @MainActor

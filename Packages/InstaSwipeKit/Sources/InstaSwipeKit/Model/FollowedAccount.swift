@@ -1,6 +1,7 @@
 import Foundation
 
-public enum Decision: String, Codable, Sendable { case pending, keep, remove }
+/// `unsure` ("Ho il dubbio") leaves the swipe queue until the pending accounts are done, then comes back.
+public enum Decision: String, Codable, Sendable { case pending, keep, remove, unsure }
 
 public enum Availability: String, Codable, Sendable { case unknown, available, unavailable }
 

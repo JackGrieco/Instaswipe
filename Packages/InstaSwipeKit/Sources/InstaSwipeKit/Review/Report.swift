@@ -1,12 +1,13 @@
 import Foundation
 
-public enum ReportFilter: String, CaseIterable, Sendable { case toDo, done, gone, kept }
+public enum ReportFilter: String, CaseIterable, Sendable { case toDo, unsure, done, gone, kept }
 
 /// Pure logic for the "Da togliere" list. Results keep `AppState.accounts` order.
 public enum Report {
     private static func matches(_ filter: ReportFilter, _ account: FollowedAccount) -> Bool {
         switch filter {
         case .toDo: account.decision == .remove && !account.unfollowedManually && account.availability != .unavailable
+        case .unsure: account.decision == .unsure && account.availability != .unavailable
         case .done: account.decision == .remove && account.unfollowedManually
         case .gone: account.availability == .unavailable && account.stillInLatestExport
         case .kept: account.decision == .keep

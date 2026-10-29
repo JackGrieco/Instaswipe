@@ -6,6 +6,10 @@ struct InstaSwipeApp: App {
     @State private var model: AppModel?
     @Environment(\.scenePhase) private var scenePhase
 
+    init() {
+        AppAppearance.configure()
+    }
+
     var body: some Scene {
         WindowGroup {
             Group {
@@ -15,6 +19,7 @@ struct InstaSwipeApp: App {
                     ProgressView("Avvio…")
                 }
             }
+            .tint(Theme.pink)
             .task {
                 guard model == nil else { return }
                 model = AppModel(environment: await AppEnvironment.resolve())
@@ -31,7 +36,7 @@ enum RootTab: Hashable { case swipe, toRemove }
 
 struct RootView: View {
     @Bindable var model: AppModel
-    @State private var isShowingSettings = false
+    @State private var settings = SettingsPresenter()
     @State private var selectedTab = RootTab.swipe
 
     var body: some View {
@@ -49,30 +54,31 @@ struct RootView: View {
                 ImportView(model: model)
             }
         }
-        .errorAlert(model, isActive: !isShowingSettings && model.pendingMerge == nil)
+        .font(.outfit(16))
+        .errorAlert(model, isActive: !settings.isPresented && model.pendingMerge == nil)
     }
 
     private var mainTabs: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                banners
-                TabView(selection: $selectedTab) {
-                    SwipeView(model: model) { selectedTab = .toRemove }
-                        .tabItem { Label("Swipe", systemImage: "hand.draw") }
-                        .tag(RootTab.swipe)
-                    ReportView(model: model)
-                        .tabItem { Label("Da togliere", systemImage: "person.badge.minus") }
-                        .tag(RootTab.toRemove)
-                }
+        VStack(spacing: 0) {
+            banners
+            TabView(selection: $selectedTab) {
+                SwipeView(model: model) { selectedTab = .toRemove }
+                    .tabItem { Label("Swipe", systemImage: "hand.draw") }
+                    .tag(RootTab.swipe)
+                ReportView(model: model)
+                    .tabItem { Label("Da togliere", systemImage: "person.badge.minus") }
+                    .badge(toDoCount)
+                    .tag(RootTab.toRemove)
             }
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { isShowingSettings = true } label: { Image(systemName: "gearshape") }
-                        .accessibilityLabel("Impostazioni")
-                }
-            }
-            .sheet(isPresented: $isShowingSettings) { SettingsView(model: model) }
         }
+        .background(Theme.bg.ignoresSafeArea())
+        .environment(settings)
+        .sheet(isPresented: $settings.isPresented) { SettingsView(model: model) }
+    }
+
+    /// Badge on "Da togliere": accounts still to unfollow; 0 hides it.
+    private var toDoCount: Int {
+        model.state.map { Report.counts(in: $0)[.toDo] ?? 0 } ?? 0
     }
 
     @ViewBuilder private var banners: some View {
@@ -91,14 +97,15 @@ struct BannerView: View {
 
     var body: some View {
         HStack {
-            Text(text).font(.footnote)
+            Text(text).font(.outfit(13, .medium)).foregroundStyle(Theme.warningText)
             Spacer()
             if let onDismiss {
-                Button("Chiudi", action: onDismiss).font(.footnote)
+                Button("Chiudi", action: onDismiss).font(.outfit(13, .semibold))
             }
         }
-        .padding(8)
-        .background(.yellow.opacity(0.25))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(Theme.warningFill.opacity(0.14))
     }
 }
 

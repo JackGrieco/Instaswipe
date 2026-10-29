@@ -134,6 +134,52 @@ struct ReviewTests {
         #expect(account("a", in: result).decision == .keep)
     }
 
+    @Test func unsureAccountsComeBackAfterThePendingOnes() {
+        var state = Review.decide(.unsure, username: "a", in: threeAccounts(), now: at(1))
+        #expect(Review.current(in: state)?.username == "b")
+        #expect(Review.next(after: "b", in: state)?.username == "c")
+        #expect(Review.next(after: "c", in: state)?.username == "a")
+
+        state = Review.decide(.keep, username: "b", in: state, now: at(2))
+        state = Review.decide(.remove, username: "c", in: state, now: at(3))
+        #expect(Review.current(in: state)?.username == "a")
+        #expect(Review.next(after: "a", in: state) == nil)
+    }
+
+    @Test func unsureAgainSendsTheAccountToTheBackOfTheDoubts() {
+        var state = Review.decide(.unsure, username: "a", in: threeAccounts(), now: at(1))
+        state = Review.decide(.unsure, username: "b", in: state, now: at(2))
+        state = Review.decide(.keep, username: "c", in: state, now: at(3))
+        #expect(Review.current(in: state)?.username == "a")
+
+        state = Review.decide(.unsure, username: "a", in: state, now: at(4))
+
+        #expect(Review.current(in: state)?.username == "b")
+        #expect(Review.next(after: "b", in: state)?.username == "a")
+    }
+
+    @Test func progressCountsOnlyKeepAndRemoveAsDecided() {
+        var state = Review.decide(.unsure, username: "a", in: threeAccounts(), now: at(1))
+        state = Review.decide(.keep, username: "b", in: state, now: at(2))
+        #expect(Review.progress(in: state) == ReviewProgress(decided: 1, total: 3))
+    }
+
+    @Test func undoRevertsAnUnsureDecision() {
+        let state = Review.decide(.unsure, username: "a", in: threeAccounts(), now: at(1))
+        #expect(account("a", in: Review.undo(in: state)).decision == .pending)
+    }
+
+    @Test func lastDecidedIsTheAccountUndoWouldRevert() {
+        var state = Review.decide(.remove, username: "a", in: threeAccounts(), now: at(2))
+        state = Review.decide(.keep, username: "b", in: state, now: at(1))
+        #expect(Review.lastDecided(in: state)?.username == "a")
+        #expect(Review.lastDecided(in: state)?.decision == .remove)
+    }
+
+    @Test func lastDecidedIsNilWithNothingDecided() {
+        #expect(Review.lastDecided(in: threeAccounts()) == nil)
+    }
+
     @Test func markAvailabilityKeepsExistingDecision() {
         let decided = Review.decide(.remove, username: "a", in: threeAccounts(), now: at(1))
         let result = Review.markAvailability(.unavailable, displayName: nil, username: "a", in: decided)

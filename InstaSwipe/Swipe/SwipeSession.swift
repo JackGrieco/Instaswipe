@@ -48,6 +48,26 @@ final class SwipeSession {
 
     var currentResult: ProfilePageResult? { current.flatMap { results[$0.username] } }
 
+    /// The card waiting behind the current one.
+    var next: FollowedAccount? {
+        guard let state = model.state, let current else { return nil }
+        return Review.next(after: current.username, in: state)
+    }
+
+    func imageURL(for username: String) -> URL? {
+        if case .profile(_, let url) = results[username] { return url }
+        return nil
+    }
+
+    /// What `undo` would revert, so the card can come back from the side it left.
+    var lastDecision: Decision? { model.state.flatMap { Review.lastDecided(in: $0)?.decision } }
+
+    var progressFraction: Double {
+        guard let state = model.state else { return 0 }
+        let progress = Review.progress(in: state)
+        return progress.total > 0 ? Double(progress.decided) / Double(progress.total) : 0
+    }
+
     var canUndo: Bool {
         model.state?.accounts.contains { $0.decision != .pending && $0.decidedAt != nil } ?? false
     }
@@ -101,10 +121,15 @@ final class SwipeSession {
         loadVisibleProfiles()
     }
 
-    func decide(_ decision: Decision) {
-        guard let username = current?.username else { return }
-        model.apply { Review.decide(decision, username: username, in: $0, now: now()) }
+    /// Returns false when the decision was not applied (e.g. a failed save), so the card can return.
+    @discardableResult
+    func decide(_ decision: Decision) -> Bool {
+        guard let username = current?.username else { return false }
+        let date = now()
+        model.apply { Review.decide(decision, username: username, in: $0, now: date) }
         loadVisibleProfiles()
+        let account = model.state?.accounts.first { $0.username == username }
+        return account?.decision == decision && account?.decidedAt == date
     }
 
     func undo() {

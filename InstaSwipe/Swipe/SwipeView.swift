@@ -109,7 +109,7 @@ struct SwipeView: View {
     }
 }
 
-/// Draggable card: past `swipeDecisionThreshold` the drag becomes a decision, otherwise it springs back.
+/// Draggable card: past `swipeDecisionThreshold` the drag becomes a decision; the card always springs back.
 private struct SwipeCardContainer: View {
     static let swipeDecisionThreshold: CGFloat = 120
     private static let maxRotation: Double = 12
@@ -136,9 +136,9 @@ private struct SwipeCardContainer: View {
                 let width = value.translation.width
                 if abs(width) > Self.swipeDecisionThreshold {
                     onDecision(width > 0 ? .keep : .remove)
-                } else {
-                    withAnimation(.spring) { dragOffset = 0 }
                 }
+                // Also after a decision: if it was not applied (e.g. a failed save) the card stays.
+                withAnimation(.spring) { dragOffset = 0 }
             }
     }
 }

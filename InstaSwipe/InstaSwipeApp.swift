@@ -56,7 +56,7 @@ struct RootView: View {
                     SwipeView(model: model) { selectedTab = .toRemove }
                         .tabItem { Label("Swipe", systemImage: "hand.draw") }
                         .tag(RootTab.swipe)
-                    Text("Da togliere")
+                    ReportView(model: model)
                         .tabItem { Label("Da togliere", systemImage: "person.badge.minus") }
                         .tag(RootTab.toRemove)
                 }

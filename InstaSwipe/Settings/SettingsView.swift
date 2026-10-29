@@ -1,3 +1,4 @@
+import InstaSwipeKit
 import SwiftUI
 
 struct SettingsView: View {
@@ -9,8 +10,21 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Button("Reimporta export") { isImporting = true }
-                Button("Accedi a Instagram") { isLoggingIn = true }
+                Section {
+                    Stepper(
+                        "Profili al giorno: \(dailyLimit)",
+                        value: dailyLimitBinding,
+                        in: Limits.minDailyProfileLoads...Limits.maxDailyProfileLoads,
+                        step: Self.dailyLimitStep
+                    )
+                }
+                Section {
+                    Button("Reimporta export") { isImporting = true }
+                    Button("Accedi di nuovo a Instagram") { isLoggingIn = true }
+                }
+                Section {
+                    LabeledContent("Copie su iCloud", value: model.isCloudAvailable ? "attive" : "disattivate")
+                }
             }
             .navigationTitle("Impostazioni")
             .toolbar {
@@ -27,6 +41,17 @@ struct SettingsView: View {
                 }
             }
         }
+    }
+
+    private static let dailyLimitStep = 50
+
+    private var dailyLimit: Int { model.state?.dailyProfileLimit ?? Limits.defaultDailyProfileLoads }
+
+    private var dailyLimitBinding: Binding<Int> {
+        Binding(
+            get: { dailyLimit },
+            set: { newLimit in model.apply { ProfileBudget.setDailyLimit(newLimit, in: $0) } }
+        )
     }
 
     private var pendingBinding: Binding<Bool> {

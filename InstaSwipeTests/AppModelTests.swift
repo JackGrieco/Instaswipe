@@ -101,7 +101,7 @@ struct AppModelTests {
 
         #expect(model.state == before)
         #expect(model.errorMessage != nil)
-        #expect(model.pendingMerge == nil)
+        #expect(model.pendingMerge != nil)
     }
 
     @Test func confirmImportKeepsDecisionsMadeAfterPreview() async throws {

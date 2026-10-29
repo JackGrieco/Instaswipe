@@ -87,8 +87,9 @@ final class AppModel {
         persist(transform(current))
     }
 
-    private func persist(_ candidate: AppState) {
-        guard loadError == nil, !isWaitingForCloud else { return }
+    @discardableResult
+    private func persist(_ candidate: AppState) -> Bool {
+        guard loadError == nil, !isWaitingForCloud else { return false }
         var next = candidate
         next.savedAt = now()
         do {
@@ -96,11 +97,12 @@ final class AppModel {
         } catch {
             Self.logger.error("Save failed: \(error.localizedDescription)")
             errorMessage = "Non sono riuscito a salvare: \(error.localizedDescription)"
-            return
+            return false
         }
         state = next
         runBackupIfNeeded(next)
         scheduleCloudMirror()
+        return true
     }
 
     private func runBackupIfNeeded(_ saved: AppState) {
@@ -189,13 +191,12 @@ final class AppModel {
             } catch {
                 Self.logger.error("Pre-import backup failed: \(error.localizedDescription)")
                 errorMessage = "Import annullato: non sono riuscito a fare la copia di sicurezza (\(error.localizedDescription))."
-                clearPendingImport()
                 return
             }
         }
         let merged = MergeEngine.preview(current: state, snapshot: snapshot, now: now())
-        clearPendingImport()
-        persist(merged.state)
+        // On failure the preview stays up so the error alert shows inside the sheet.
+        if persist(merged.state) { clearPendingImport() }
     }
 
     private func clearPendingImport() {

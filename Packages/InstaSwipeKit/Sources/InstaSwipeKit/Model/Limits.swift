@@ -2,6 +2,8 @@ import Foundation
 
 public enum Limits {
     public static let defaultDailyProfileLoads = 400
+    public static let minDailyProfileLoads = 50
+    public static let maxDailyProfileLoads = 2000
     public static let dailyUnfollowWarning = 150
     public static let reimportSuspiciousRatio = 0.2
     public static let profileLoadTimeout: Duration = .seconds(10)

@@ -27,17 +27,17 @@ actor ThumbnailCache {
         do {
             let (data, _) = try await URLSession.shared.data(from: url)
             guard let source = UIImage(data: data) else {
-                Self.logger.error("Undecodable thumbnail for \(username, privacy: .private)")
+                Self.logger.error("Undecodable thumbnail for \(username, privacy: .public)")
                 return
             }
             guard let jpeg = Self.resized(source).jpegData(compressionQuality: Self.jpegQuality) else {
-                Self.logger.error("JPEG encoding failed for \(username, privacy: .private)")
+                Self.logger.error("JPEG encoding failed for \(username, privacy: .public)")
                 return
             }
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             try jpeg.write(to: fileURL(for: username), options: .atomic)
         } catch {
-            Self.logger.error("Thumbnail store failed: \(error.localizedDescription)")
+            Self.logger.error("Thumbnail store failed for \(username, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
     }
 

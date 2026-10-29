@@ -30,7 +30,7 @@ final class WebProfileLoader: ProfileLoading {
       body: (document.body?.innerText ?? '').slice(0, 3000) }))()
     """
 
-    private static let logger = Logger(subsystem: "com.giacomogrieco.InstaSwipe", category: "ProfileLoader")
+    static let logger = Logger(subsystem: "com.giacomogrieco.InstaSwipe", category: "ProfileLoader")
 
     func load(username: String) async -> ProfilePageResult {
         guard let url = URL(string: "https://www.instagram.com/\(username)/") else { return .unrecognized }
@@ -66,6 +66,7 @@ private final class LoadSession: NSObject, WKNavigationDelegate {
             timeoutTask = Task { [weak self] in
                 try? await Task.sleep(for: Limits.profileLoadTimeout)
                 guard !Task.isCancelled else { return }
+                WebProfileLoader.logger.error("Profile load timed out")
                 self?.finish(.unrecognized)
             }
             webView.load(URLRequest(url: url))
@@ -92,23 +93,58 @@ private final class LoadSession: NSObject, WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        webView.evaluateJavaScript(WebProfileLoader.extractionScript) { [weak self] value, _ in
+        webView.evaluateJavaScript(WebProfileLoader.extractionScript) { [weak self] value, error in
             MainActor.assumeIsolated {
                 guard let self else { return }
+                if let error {
+                    let nsError = error as NSError
+                    WebProfileLoader.logger.error(
+                        "Extraction script failed: \(nsError.domain, privacy: .public) \(nsError.code, privacy: .public)"
+                    )
+                }
                 guard let snapshot = ProfileSnapshotMapper.snapshot(from: value, requestedURL: self.url) else {
+                    WebProfileLoader.logger.error("Unreadable page snapshot")
                     self.finish(.unrecognized)
                     return
                 }
-                self.finish(ProfilePageClassifier.classify(snapshot, username: self.username))
+                let result = ProfilePageClassifier.classify(snapshot, username: self.username)
+                WebProfileLoader.logger.notice(
+                    "Classified \(result.logLabel, privacy: .public) at \(snapshot.finalURL.absoluteString, privacy: .public)"
+                )
+                self.finish(result)
             }
         }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        finish(.unrecognized)
+        navigationFailed(error)
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        navigationFailed(error)
+    }
+
+    /// Cancelled or interrupted navigations are not final: `didFinish` or the timeout decides.
+    private func navigationFailed(_ error: any Error) {
+        let nsError = error as NSError
+        let isIgnorable = NavigationErrorPolicy.isIgnorable(error)
+        WebProfileLoader.logger.error(
+            "Navigation failed: \(nsError.domain, privacy: .public) \(nsError.code, privacy: .public), ignored: \(isIgnorable, privacy: .public)"
+        )
+        guard !isIgnorable else { return }
         finish(.unrecognized)
+    }
+}
+
+private extension ProfilePageResult {
+    /// Case name only, without display name or image URL.
+    var logLabel: String {
+        switch self {
+        case .profile: "profile"
+        case .unavailable: "unavailable"
+        case .rateLimited: "rateLimited"
+        case .loginRequired: "loginRequired"
+        case .unrecognized: "unrecognized"
+        }
     }
 }

@@ -4,11 +4,13 @@ struct SettingsView: View {
     let model: AppModel
     @Environment(\.dismiss) private var dismiss
     @State private var isImporting = false
+    @State private var isLoggingIn = false
 
     var body: some View {
         NavigationStack {
             Form {
                 Button("Reimporta export") { isImporting = true }
+                Button("Accedi a Instagram") { isLoggingIn = true }
             }
             .navigationTitle("Impostazioni")
             .toolbar {
@@ -17,6 +19,7 @@ struct SettingsView: View {
             .fileImporter(isPresented: $isImporting, allowedContentTypes: ExportPicker.contentTypes, allowsMultipleSelection: true) { result in
                 ExportPicker.handle(result, model: model)
             }
+            .sheet(isPresented: $isLoggingIn) { LoginView() }
             .errorAlert(model, isActive: model.pendingMerge == nil)
             .sheet(isPresented: pendingBinding) {
                 if let preview = model.pendingMerge {

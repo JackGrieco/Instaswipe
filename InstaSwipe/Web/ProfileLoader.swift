@@ -23,11 +23,32 @@ final class FakeProfileLoader: ProfileLoading {
 /// No clicks, no scripts beyond reading the DOM. Callers limit concurrency to 2.
 @MainActor
 final class WebProfileLoader: ProfileLoading {
+    /// Async function body for `callAsyncJavaScript`. Read-only: it waits briefly for the page to render
+    /// larger copies of the og:image photo (same file name) and returns every copy it finds.
     static let extractionScript = """
-    (() => ({ url: location.href, title: document.title,
+    const ogImage = document.querySelector('meta[property="og:image"]')?.content ?? null;
+    let photoFile = null;
+    try { photoFile = ogImage ? new URL(ogImage).pathname.split('/').pop() : null; } catch (e) {}
+    const renderedCopies = () => {
+      if (!photoFile) return [];
+      const urls = [];
+      for (const img of document.images) {
+        const srcset = (img.srcset || '').split(',').map(s => s.trim().split(' ')[0]);
+        for (const u of [img.currentSrc, img.src, ...srcset]) {
+          if (u && u.includes(photoFile)) urls.push(u);
+        }
+      }
+      return urls;
+    };
+    let images = renderedCopies();
+    for (let attempt = 0; attempt < 10 && images.length === 0; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 150));
+      images = renderedCopies();
+    }
+    return { url: location.href, title: document.title,
       ogTitle: document.querySelector('meta[property="og:title"]')?.content ?? null,
-      ogImage: document.querySelector('meta[property="og:image"]')?.content ?? null,
-      body: (document.body?.innerText ?? '').slice(0, 3000) }))()
+      ogImage: ogImage, images: images,
+      body: (document.body?.innerText ?? '').slice(0, 3000) };
     """
 
     static let logger = Logger(subsystem: "com.giacomogrieco.InstaSwipe", category: "ProfileLoader")
@@ -93,10 +114,16 @@ private final class LoadSession: NSObject, WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        webView.evaluateJavaScript(WebProfileLoader.extractionScript) { [weak self] value, error in
+        webView.callAsyncJavaScript(
+            WebProfileLoader.extractionScript, arguments: [:], in: nil, in: .defaultClient
+        ) { [weak self] outcome in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                if let error {
+                var value: Any?
+                switch outcome {
+                case .success(let result):
+                    value = result
+                case .failure(let error):
                     let nsError = error as NSError
                     WebProfileLoader.logger.error(
                         "Extraction script failed: \(nsError.domain, privacy: .public) \(nsError.code, privacy: .public)"
@@ -109,7 +136,7 @@ private final class LoadSession: NSObject, WKNavigationDelegate {
                 }
                 let result = ProfilePageClassifier.classify(snapshot, username: self.username)
                 WebProfileLoader.logger.notice(
-                    "Classified \(result.logLabel, privacy: .public) at \(snapshot.finalURL.absoluteString, privacy: .public)"
+                    "Classified \(result.logLabel, privacy: .public) at \(snapshot.finalURL.absoluteString, privacy: .public), photo \(snapshot.ogImage?.absoluteString ?? "none", privacy: .public)"
                 )
                 self.finish(result)
             }

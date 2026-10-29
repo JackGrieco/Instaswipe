@@ -30,6 +30,30 @@ import InstaSwipeKit
         #expect(snapshot?.bodyText == "")
     }
 
+    @Test func prefersLargestRenderedCopyOfTheProfilePhoto() {
+        let small = "https://cdn.example.com/v/p_n.jpg?stp=dst-jpg_s100x100_tt6"
+        let medium = "https://cdn.example.com/v/p_n.jpg?stp=dst-jpg_s150x150_tt6"
+        let large = "https://cdn.example.com/v/p_n.jpg?stp=dst-jpg_s320x320_tt6"
+        let result: [String: Any] = ["ogImage": small, "images": [medium, large, small]]
+        let snapshot = ProfileSnapshotMapper.snapshot(from: result, requestedURL: requested)
+        #expect(snapshot?.ogImage == URL(string: large))
+    }
+
+    @Test func keepsOgImageWhenNoLargerCopyWasRendered() {
+        let small = "https://cdn.example.com/v/p_n.jpg?stp=dst-jpg_s100x100_tt6"
+        let result: [String: Any] = ["ogImage": small, "images": [String]()]
+        let snapshot = ProfileSnapshotMapper.snapshot(from: result, requestedURL: requested)
+        #expect(snapshot?.ogImage == URL(string: small))
+    }
+
+    @Test func treatsUnsizedCopyAsFullResolution() {
+        let small = "https://cdn.example.com/v/p_n.jpg?stp=dst-jpg_s100x100_tt6"
+        let unsized = "https://cdn.example.com/v/p_n.jpg?stp=dst-jpg_tt6"
+        let result: [String: Any] = ["ogImage": small, "images": [unsized]]
+        let snapshot = ProfileSnapshotMapper.snapshot(from: result, requestedURL: requested)
+        #expect(snapshot?.ogImage == URL(string: unsized))
+    }
+
     @Test func returnsNilWhenResultIsNotADictionary() {
         #expect(ProfileSnapshotMapper.snapshot(from: "nope", requestedURL: requested) == nil)
         #expect(ProfileSnapshotMapper.snapshot(from: nil, requestedURL: requested) == nil)

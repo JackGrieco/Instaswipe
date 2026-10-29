@@ -19,6 +19,7 @@ enum ExportPicker {
 struct ImportView: View {
     @Bindable var model: AppModel
     @State private var isImporting = false
+    @State private var isConfirmingFirstImport = false
 
     var body: some View {
         VStack(spacing: 20) {
@@ -38,10 +39,20 @@ struct ImportView: View {
                     .padding(10)
                     .background(.red.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
             }
-            Button("Scegli cartella o file JSON") { isImporting = true }
-                .buttonStyle(.borderedProminent)
+            Button("Scegli cartella o file JSON") {
+                if model.needsFirstImportConfirmation {
+                    isConfirmingFirstImport = true
+                } else {
+                    isImporting = true
+                }
+            }
+            .buttonStyle(.borderedProminent)
         }
         .padding()
+        .alert("Non ho trovato progressi su iCloud. Importare da zero?", isPresented: $isConfirmingFirstImport) {
+            Button("Importa") { isImporting = true }
+            Button("Annulla", role: .cancel) {}
+        }
         .fileImporter(isPresented: $isImporting, allowedContentTypes: ExportPicker.contentTypes, allowsMultipleSelection: true) { result in
             ExportPicker.handle(result, model: model)
         }

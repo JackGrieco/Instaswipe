@@ -36,13 +36,16 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if let loadError = model.loadError {
-                LoadErrorView(model: model, message: loadError)
-            } else if model.isWaitingForCloud {
+            switch model.rootScreen {
+            case .loadError(let message):
+                LoadErrorView(model: model, message: message)
+            case .checkingCloud:
+                ProgressView("Controllo i progressi su iCloud…")
+            case .waitingForCloud:
                 ProgressView("Sto recuperando i progressi da iCloud…")
-            } else if model.state != nil {
+            case .main:
                 mainTabs
-            } else {
+            case .importer:
                 ImportView(model: model)
             }
         }

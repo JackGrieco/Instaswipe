@@ -3,6 +3,14 @@ import InstaSwipeKit
 import Observation
 import os
 
+enum RootScreen: Equatable {
+    case loadError(String)
+    case checkingCloud
+    case waitingForCloud
+    case importer
+    case main
+}
+
 @MainActor
 @Observable
 final class AppModel {
@@ -14,6 +22,8 @@ final class AppModel {
     private(set) var loadError: String?
     private(set) var quarantinedFileNames: [String] = []
     private(set) var isWaitingForCloud = false
+    /// True while the probe asks iCloud whether a state exists (fresh install with iCloud on).
+    private(set) var isCheckingCloud = false
     /// Non-blocking warning (backup or mirror problems).
     private(set) var bannerMessage: String?
     /// Blocking-but-dismissable message (save or import failure).
@@ -35,10 +45,22 @@ final class AppModel {
     private var mirrorWriteTask: Task<Result<Void, any Error>, Never>?
     private var firstUnmirroredChange: ContinuousClock.Instant?
     private var cloudRetryTask: Task<Void, Never>?
+    private let cloudProbe: (any CloudStateProbe)?
+    private(set) var cloudCheckTask: Task<Void, Never>?
+    private var hasCheckedCloud = false
+    /// The probe saw a state in iCloud: keep waiting for it, never offer an import.
+    private var isCloudStateExpected = false
 
-    init(environment: AppEnvironment, now: @escaping @Sendable () -> Date = { Date() }) {
+    /// `cloudProbe` defaults to an `NSMetadataQuery` probe, except in UI-test mode or without iCloud.
+    init(
+        environment: AppEnvironment,
+        cloudProbe: (any CloudStateProbe)? = nil,
+        now: @escaping @Sendable () -> Date = { Date() }
+    ) {
         self.environment = environment
         self.now = now
+        self.cloudProbe = cloudProbe
+            ?? (environment.isUITesting || environment.cloudDirectory == nil ? nil : MetadataCloudStateProbe())
         isCloudAvailable = environment.cloudDirectory != nil
         store = FileStateStore(localDirectory: environment.localDirectory, cloudDirectory: environment.cloudDirectory)
         let backupsRoot = environment.cloudDirectory ?? environment.localDirectory
@@ -88,8 +110,26 @@ final class AppModel {
         }
     }
 
+    var rootScreen: RootScreen {
+        if let loadError { return .loadError(loadError) }
+        if isCheckingCloud { return .checkingCloud }
+        if isWaitingForCloud { return .waitingForCloud }
+        return state == nil ? .importer : .main
+    }
+
+    /// Nothing saves while loading failed, iCloud is still being checked or downloaded.
+    private var isBlocked: Bool {
+        loadError != nil || isWaitingForCloud || isCheckingCloud
+    }
+
+    /// A first import with iCloud on asks for confirmation (the cloud copy may be late).
+    var needsFirstImportConfirmation: Bool {
+        state == nil && isCloudAvailable
+    }
+
     private func finishLoading(with loaded: AppState?) {
         loadError = nil
+        if loaded == nil, deferToCloudState() { return }
         isWaitingForCloud = false
         state = loaded
         if loaded != nil {
@@ -97,6 +137,32 @@ final class AppModel {
         } else if environment.shouldSeedTestAccounts {
             seedTestAccounts()
         }
+    }
+
+    /// With iCloud on and no state found, the iCloud copy may simply not be visible yet: ask the
+    /// probe once, and wait (retrying every `cloudRetryInterval`) when it says a copy exists.
+    /// Returns true when the import screen must not be shown yet.
+    private func deferToCloudState() -> Bool {
+        if isCloudStateExpected {
+            isWaitingForCloud = true
+            scheduleCloudRetry()
+            return true
+        }
+        guard isCloudAvailable, !hasCheckedCloud, let cloudProbe else { return false }
+        hasCheckedCloud = true
+        isCheckingCloud = true
+        cloudCheckTask = Task { [weak self] in
+            let exists = await cloudProbe.cloudStateExists()
+            self?.cloudCheckFinished(exists: exists)
+        }
+        return true
+    }
+
+    private func cloudCheckFinished(exists: Bool) {
+        Self.logger.info("iCloud state probe: \(exists ? "found" : "not found", privacy: .public)")
+        isCheckingCloud = false
+        isCloudStateExpected = exists
+        attemptLoad()
     }
 
     // MARK: Restore
@@ -136,13 +202,13 @@ final class AppModel {
     /// Applies `transform` and persists the result synchronously. No-op without a loaded state
     /// or after a load error; `state` only changes if the save succeeded.
     func apply(_ transform: (AppState) -> AppState) {
-        guard loadError == nil, !isWaitingForCloud, let current = state else { return }
+        guard !isBlocked, let current = state else { return }
         persist(transform(current))
     }
 
     @discardableResult
     private func persist(_ candidate: AppState) -> Bool {
-        guard loadError == nil, !isWaitingForCloud else { return false }
+        guard !isBlocked else { return false }
         var next = candidate
         next.savedAt = now()
         do {
@@ -219,7 +285,7 @@ final class AppModel {
 
     /// `picked` is either one folder or the JSON files chosen in the Files picker.
     func prepareImport(picked: [URL]) async {
-        guard loadError == nil, !isWaitingForCloud else { return }
+        guard !isBlocked else { return }
         let scoped = picked.filter { $0.startAccessingSecurityScopedResource() }
         defer { scoped.forEach { $0.stopAccessingSecurityScopedResource() } }
 
@@ -251,7 +317,7 @@ final class AppModel {
     /// Re-merges the picked snapshot into the CURRENT state, so decisions made after the
     /// preview was computed are never overwritten.
     func confirmImport() {
-        guard let snapshot = pendingSnapshot, loadError == nil, !isWaitingForCloud else { return }
+        guard let snapshot = pendingSnapshot, !isBlocked else { return }
         if let current = state {
             do {
                 try backups.backup(current, kind: .preImport, now: now())

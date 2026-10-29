@@ -104,3 +104,66 @@ private func names(_ directory: URL) -> [String] {
         #expect(names(dir).count == Limits.preImportBackupsKept)
     }
 }
+
+private func writeBackup(_ decisions: Int, named name: String, in directory: URL) throws {
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try StateCoding.encoder().encode(stateWith(decisions: decisions)).write(to: directory.appendingPathComponent(name))
+}
+
+private func setModified(_ name: String, in directory: URL, _ date: Date) throws {
+    try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: directory.appendingPathComponent(name).path)
+}
+
+@Test func newestValidBackupPicksNewestByModificationDateAcrossKinds() throws {
+    try withTempDir { dir in
+        let rotator = BackupRotator(directory: dir)
+        try rotator.backup(stateWith(decisions: 1), kind: .daily, now: day(0))
+        try rotator.backup(stateWith(decisions: 300), kind: .step(300), now: day(0))
+        try rotator.backup(stateWith(decisions: 7), kind: .preImport, now: day(0))
+        let files = names(dir)
+        let step = try #require(files.first { $0.hasPrefix("step-") })
+        let preImport = try #require(files.first { $0.hasPrefix("preimport-") })
+        let daily = try #require(files.first { $0.hasPrefix("daily-") })
+        try setModified(daily, in: dir, day(1))
+        try setModified(step, in: dir, day(3))
+        try setModified(preImport, in: dir, day(2))
+
+        #expect(try rotator.newestValidBackup()?.totalDecisionsMade == 300)
+    }
+}
+
+@Test func newestValidBackupSkipsCorruptNewerFile() throws {
+    try withTempDir { dir in
+        let rotator = BackupRotator(directory: dir)
+        try writeBackup(5, named: "daily-2023-11-14.json", in: dir)
+        try writeBackup(9, named: "daily-2023-11-15.json", in: dir)
+        try Data("not json".utf8).write(to: dir.appendingPathComponent("daily-2023-11-16.json"))
+        try setModified("daily-2023-11-14.json", in: dir, day(0))
+        try setModified("daily-2023-11-15.json", in: dir, day(1))
+        try setModified("daily-2023-11-16.json", in: dir, day(2))
+
+        #expect(try rotator.newestValidBackup()?.totalDecisionsMade == 9)
+    }
+}
+
+@Test func newestValidBackupBreaksDateTiesByNewestName() throws {
+    try withTempDir { dir in
+        let rotator = BackupRotator(directory: dir)
+        try writeBackup(5, named: "daily-2023-11-14.json", in: dir)
+        try writeBackup(9, named: "daily-2023-11-15.json", in: dir)
+        try setModified("daily-2023-11-14.json", in: dir, day(4))
+        try setModified("daily-2023-11-15.json", in: dir, day(4))
+
+        #expect(try rotator.newestValidBackup()?.totalDecisionsMade == 9)
+    }
+}
+
+@Test func newestValidBackupIgnoresOtherFilesAndReturnsNilWhenNoneDecode() throws {
+    try withTempDir { dir in
+        let rotator = BackupRotator(directory: dir)
+        #expect(try rotator.newestValidBackup() == nil)
+        try writeBackup(1, named: "state.json", in: dir)
+        try Data("{}".utf8).write(to: dir.appendingPathComponent("step-100.json"))
+        #expect(try rotator.newestValidBackup() == nil)
+    }
+}

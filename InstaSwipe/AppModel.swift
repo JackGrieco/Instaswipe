@@ -20,6 +20,8 @@ final class AppModel {
     var errorMessage: String?
     private(set) var pendingMerge: MergePreview?
     private var pendingSnapshot: ExportSnapshot?
+    /// Backup chosen by `prepareRestore()`, waiting for the user's confirmation.
+    private(set) var pendingRestore: AppState?
 
     let isCloudAvailable: Bool
     let environment: AppEnvironment
@@ -52,13 +54,25 @@ final class AppModel {
         } catch StateStoreError.corrupted(let quarantined) {
             isWaitingForCloud = false
             quarantinedFileNames = quarantined.map(\.lastPathComponent)
-            loadError = "Non riesco a leggere i progressi salvati. Non ho cancellato niente: i file sono stati messi da parte e le copie di sicurezza sono in File → iCloud Drive → InstaSwipe → Backups."
+            loadError = corruptedMessage
             Self.logger.error("State corrupted, quarantined \(quarantined.count) file(s)")
         } catch {
             isWaitingForCloud = false
             loadError = error.localizedDescription
             Self.logger.error("State load failed: \(error.localizedDescription)")
         }
+    }
+
+    private var corruptedMessage: String {
+        let intro = "Non riesco a leggere i progressi salvati. Non ho cancellato niente: i file sono stati messi da parte."
+        return isCloudAvailable
+            ? "\(intro) Le copie di sicurezza sono anche in File → iCloud Drive → InstaSwipe → Backups."
+            : "\(intro) Le copie di sicurezza sono dentro l'app: usa «Ripristina l'ultima copia di sicurezza»."
+    }
+
+    /// "Riprova" on the load error screen.
+    func retryLoad() {
+        attemptLoad()
     }
 
     private func scheduleCloudRetry() {
@@ -71,10 +85,43 @@ final class AppModel {
     }
 
     private func finishLoading(with loaded: AppState?) {
+        loadError = nil
         isWaitingForCloud = false
         state = loaded
         if loaded == nil, environment.shouldSeedTestAccounts {
             seedTestAccounts()
+        }
+    }
+
+    // MARK: Restore
+
+    /// Picks the newest readable backup and asks for confirmation (see `pendingRestore`).
+    func prepareRestore() {
+        do {
+            guard let backup = try backups.newestValidBackup() else {
+                errorMessage = "Non ho trovato copie di sicurezza leggibili."
+                return
+            }
+            pendingRestore = backup
+        } catch {
+            Self.logger.error("Backup listing failed: \(error.localizedDescription)")
+            errorMessage = "Non riesco a leggere le copie di sicurezza: \(error.localizedDescription)"
+        }
+    }
+
+    func cancelRestore() {
+        pendingRestore = nil
+    }
+
+    /// Saves the chosen backup as the current state, leaving the quarantined files in place.
+    func confirmRestore() {
+        guard let backup = pendingRestore, let previousError = loadError else { return }
+        pendingRestore = nil
+        loadError = nil
+        if persist(backup) {
+            quarantinedFileNames = []
+        } else {
+            loadError = previousError
         }
     }
 

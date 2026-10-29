@@ -36,7 +36,7 @@ struct RootView: View {
     var body: some View {
         Group {
             if let loadError = model.loadError {
-                LoadErrorView(message: loadError, fileNames: model.quarantinedFileNames)
+                LoadErrorView(model: model, message: loadError)
             } else if model.isWaitingForCloud {
                 ProgressView("Sto recuperando i progressi da iCloud…")
             } else if model.state != nil {
@@ -99,8 +99,8 @@ struct BannerView: View {
 }
 
 struct LoadErrorView: View {
+    let model: AppModel
     let message: String
-    let fileNames: [String]
 
     var body: some View {
         ScrollView {
@@ -109,11 +109,37 @@ struct LoadErrorView: View {
                     .font(.title3.bold())
                     .foregroundStyle(.red)
                 Text(message)
-                ForEach(fileNames, id: \.self) { name in
+                ForEach(model.quarantinedFileNames, id: \.self) { name in
                     Text(name).font(.footnote.monospaced())
                 }
+                Button("Ripristina l'ultima copia di sicurezza", action: model.prepareRestore)
+                    .buttonStyle(.borderedProminent)
+                Button("Riprova", action: model.retryLoad)
+                    .buttonStyle(.bordered)
             }
             .padding()
         }
+        .alert(restoreTitle, isPresented: restoreBinding) {
+            Button("Ripristina", action: model.confirmRestore)
+            Button("Annulla", role: .cancel, action: model.cancelRestore)
+        } message: {
+            Text(restoreMessage)
+        }
+    }
+
+    /// Both buttons clear `pendingRestore` themselves; the setter must not, or it could run
+    /// before "Ripristina" and cancel it.
+    private var restoreBinding: Binding<Bool> {
+        Binding(get: { model.pendingRestore != nil }, set: { _ in })
+    }
+
+    private var restoreTitle: String {
+        guard let backup = model.pendingRestore else { return "" }
+        return "Ripristinare la copia del \(backup.savedAt.formatted(date: .abbreviated, time: .shortened))?"
+    }
+
+    private var restoreMessage: String {
+        let decided = model.pendingRestore?.accounts.filter { $0.decision != .pending }.count ?? 0
+        return "Contiene \(decided) decisioni. Diventerà il tuo stato attuale; i file illeggibili restano da parte."
     }
 }

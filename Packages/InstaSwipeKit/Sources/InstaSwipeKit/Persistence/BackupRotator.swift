@@ -8,6 +8,8 @@ public enum BackupKind: Sendable {
 
 /// Writes timestamped copies of the state and keeps only the newest of each kind.
 public struct BackupRotator: Sendable {
+    private static let backupPrefixes = ["daily-", "step-", "preimport-"]
+
     private let directory: URL
 
     public init(directory: URL) {
@@ -40,6 +42,36 @@ public struct BackupRotator: Sendable {
             try write(state, name: uniquePreImportName(now))
         }
         try prune()
+    }
+
+    /// The newest backup (daily, step or pre-import) that still decodes: newest file
+    /// modification date first, then newest name. `nil` when there is none.
+    public func newestValidBackup() throws -> AppState? {
+        guard FileManager.default.fileExists(atPath: directory.path) else { return nil }
+        let decoder = StateCoding.decoder()
+        for url in try backupFilesNewestFirst() {
+            guard let data = try? Data(contentsOf: url),
+                  let state = try? decoder.decode(AppState.self, from: data) else { continue }
+            return state
+        }
+        return nil
+    }
+
+    private func backupFilesNewestFirst() throws -> [URL] {
+        let urls = try FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: [.contentModificationDateKey]
+        ).filter { url in
+            let name = url.lastPathComponent
+            return name.hasSuffix(".json") && Self.backupPrefixes.contains { name.hasPrefix($0) }
+        }
+        let dated = try urls.map { url in
+            (url: url, modified: try url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate ?? .distantPast)
+        }
+        return dated.sorted { lhs, rhs in
+            lhs.modified != rhs.modified
+                ? lhs.modified > rhs.modified
+                : lhs.url.lastPathComponent > rhs.url.lastPathComponent
+        }.map(\.url)
     }
 
     private func uniquePreImportName(_ now: Date) -> String {

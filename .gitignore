@@ -1,0 +1,14 @@
+# Export Instagram: dati personali di terzi, mai committare
+connections/
+
+# Brainstorming companion
+.superpowers/
+
+# macOS
+.DS_Store
+
+# Xcode
+xcuserdata/
+DerivedData/
+build/
+*.xcuserstate

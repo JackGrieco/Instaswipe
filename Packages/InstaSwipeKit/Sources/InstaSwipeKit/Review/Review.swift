@@ -29,11 +29,16 @@ public enum Review {
         return state.accounts[(index + 1)...].first(where: isPendingInQueue)
     }
 
+    /// Any decision other than `.remove` also clears the "unfollowed" tick, so swipe and list agree.
     public static func decide(_ decision: Decision, username: String, in state: AppState, now: Date) -> AppState {
         guard let index = state.accounts.firstIndex(where: { $0.username == username }) else { return state }
         var next = state
         next.accounts[index].decision = decision
         next.accounts[index].decidedAt = decision == .pending ? nil : now
+        if decision != .remove {
+            next.accounts[index].unfollowedManually = false
+            next.accounts[index].unfollowedAt = nil
+        }
         if decision != .pending { next.totalDecisionsMade += 1 }
         return next
     }

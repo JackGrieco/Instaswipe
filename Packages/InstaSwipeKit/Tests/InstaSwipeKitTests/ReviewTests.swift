@@ -70,6 +70,25 @@ struct ReviewTests {
         #expect(second.totalDecisionsMade == 2)
     }
 
+    @Test(arguments: [Decision.keep, .pending])
+    func decideAwayFromRemoveClearsDoneFlag(_ decision: Decision) {
+        var state = Review.decide(.remove, username: "a", in: threeAccounts(), now: at(1))
+        state.accounts[0].unfollowedManually = true
+        state.accounts[0].unfollowedAt = at(5)
+        let result = Review.decide(decision, username: "a", in: state, now: at(10))
+        #expect(account("a", in: result).unfollowedManually == false)
+        #expect(account("a", in: result).unfollowedAt == nil)
+    }
+
+    @Test func decideRemoveAgainKeepsDoneFlag() {
+        var state = Review.decide(.remove, username: "a", in: threeAccounts(), now: at(1))
+        state.accounts[0].unfollowedManually = true
+        state.accounts[0].unfollowedAt = at(5)
+        let result = Review.decide(.remove, username: "a", in: state, now: at(10))
+        #expect(account("a", in: result).unfollowedManually == true)
+        #expect(account("a", in: result).unfollowedAt == at(5))
+    }
+
     @Test func decideUnknownUsernameIsNoOp() {
         let state = threeAccounts()
         #expect(Review.decide(.keep, username: "zzz", in: state, now: at(10)) == state)

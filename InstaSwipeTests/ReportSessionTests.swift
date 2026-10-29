@@ -122,6 +122,27 @@ struct ReportSessionTests {
         #expect(session.returnPromptUsername == nil)
     }
 
+    @Test func nonRemoveAccountOpensProfileWithoutPrompt() throws {
+        let (session, _) = try makeSession()
+
+        let url = session.open(makeAccount("cc", decision: .keep))
+        session.scenePhaseChanged(.background)
+        session.scenePhaseChanged(.active)
+
+        #expect(url.absoluteString == "https://www.instagram.com/_u/cc")
+        #expect(session.returnPromptUsername == nil)
+        #expect(session.promptUsername == nil)
+    }
+
+    @Test func openingKeepAccountClearsPreviousPendingPrompt() throws {
+        let (session, _) = try makeSession()
+
+        _ = session.open(makeAccount("aa", decision: .remove))
+        _ = session.open(makeAccount("cc", decision: .keep))
+
+        #expect(session.returnPromptUsername == nil)
+    }
+
     @Test func noPromptWhenAppNeverLeft() throws {
         let (session, _) = try makeSession()
 

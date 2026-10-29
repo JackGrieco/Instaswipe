@@ -1,7 +1,9 @@
 import Foundation
 import InstaSwipeKit
 import Observation
+import CoreTransferable
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Drives the "Da togliere" list: filter, search, counters, the "did you unfollow?" prompt and CSV export.
 @MainActor
@@ -13,7 +15,6 @@ final class ReportSession {
     private(set) var returnPromptUsername: String?
     /// Account the "did you unfollow?" sheet is about; non-nil while the sheet is shown.
     private(set) var promptUsername: String?
-    private(set) var csvURL: URL?
 
     @ObservationIgnored private var hasLeftApp = false
     @ObservationIgnored private let model: AppModel
@@ -61,10 +62,6 @@ final class ReportSession {
 
     var isOverDailyWarning: Bool { unfollowsToday >= Limits.dailyUnfollowWarning }
 
-    var promptAccount: FollowedAccount? {
-        promptUsername.flatMap { name in model.state?.accounts.first { $0.username == name } }
-    }
-
     // MARK: Actions
 
     func setUnfollowed(_ done: Bool, username: String) {
@@ -81,9 +78,9 @@ final class ReportSession {
 
     // MARK: Return from Instagram
 
-    /// Returns the URL to open and remembers the account for the prompt.
+    /// Returns the URL to open. Only accounts marked "Tolgo" get the return prompt.
     func open(_ account: FollowedAccount) -> URL {
-        returnPromptUsername = account.username
+        returnPromptUsername = account.decision == .remove ? account.username : nil
         hasLeftApp = false
         return account.profileURL
     }
@@ -120,24 +117,37 @@ final class ReportSession {
 
     // MARK: CSV
 
-    func writeCSV() throws -> URL {
+    /// Snapshot handed to the share sheet; the file is only written when the user actually shares.
+    var csvExport: CSVExport {
+        CSVExport(accounts: model.state?.accounts ?? [], now: now(), timeZone: calendar.timeZone, directory: directory)
+    }
+
+    func writeCSV() throws -> URL { try csvExport.writeFile() }
+}
+
+struct CSVExport: Transferable, Sendable {
+    let accounts: [FollowedAccount]
+    let now: Date
+    let timeZone: TimeZone
+    let directory: URL
+
+    var fileName: String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = calendar.timeZone
+        formatter.timeZone = timeZone
         formatter.dateFormat = "yyyy-MM-dd"
-        let url = directory.appendingPathComponent("InstaSwipe-\(formatter.string(from: now())).csv")
-        let csv = CSVExporter.csv(for: model.state?.accounts ?? [])
-        try csv.write(to: url, atomically: true, encoding: .utf8)
+        return "InstaSwipe-\(formatter.string(from: now)).csv"
+    }
+
+    func writeFile() throws -> URL {
+        let url = directory.appendingPathComponent(fileName)
+        try CSVExporter.csv(for: accounts).write(to: url, atomically: true, encoding: .utf8)
         return url
     }
 
-    /// Regenerates the file the share button points to; failures surface through the model's alert.
-    func refreshCSV() {
-        do {
-            csvURL = try writeCSV()
-        } catch {
-            csvURL = nil
-            model.errorMessage = "Non sono riuscito a preparare il CSV: \(error.localizedDescription)"
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(exportedContentType: .commaSeparatedText) { export in
+            SentTransferredFile(try export.writeFile())
         }
     }
 }

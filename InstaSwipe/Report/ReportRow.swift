@@ -19,18 +19,23 @@ struct ReportRow: View {
                 }
             }
             Spacer()
-            Button(action: onToggleDone) {
-                Image(systemName: account.unfollowedManually ? "checkmark.circle.fill" : "circle")
-                    .font(.title2)
-                    .foregroundStyle(account.unfollowedManually ? Color.green : Color.secondary)
-            }
-            .buttonStyle(.borderless)
-            .accessibilityLabel(account.unfollowedManually ? "Togli spunta" : "Segna come fatto")
-            .accessibilityIdentifier("doneToggle-\(account.username)")
+            if account.decision == .remove { doneButton }
         }
         .contentShape(Rectangle())
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("reportRow-\(account.username)")
         .task(id: account.username) { image = await thumbnails.image(for: account.username) }
+    }
+
+    private var doneButton: some View {
+        Button(action: onToggleDone) {
+            Image(systemName: account.unfollowedManually ? "checkmark.circle.fill" : "circle")
+                .font(.title2)
+                .foregroundStyle(account.unfollowedManually ? Color.green : Color.secondary)
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel(account.unfollowedManually ? "Togli spunta" : "Segna come fatto")
+        .accessibilityIdentifier("doneToggle-\(account.username)")
     }
 
     @ViewBuilder private var avatar: some View {

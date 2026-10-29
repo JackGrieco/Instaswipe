@@ -22,8 +22,6 @@ struct ReportView: View {
         .listStyle(.insetGrouped)
         .searchable(text: $session.searchText, prompt: "Cerca per nome o username")
         .toolbar { shareButton }
-        .onAppear { session.refreshCSV() }
-        .onChange(of: model.state?.savedAt) { _, _ in session.refreshCSV() }
         .onChange(of: scenePhase) { _, phase in session.scenePhaseChanged(phase) }
         .sheet(isPresented: promptBinding) { promptSheet }
     }
@@ -57,7 +55,7 @@ struct ReportView: View {
                 session.setUnfollowed(!account.unfollowedManually, username: account.username)
             }
             .onTapGesture { openURL(session.open(account)) }
-            .swipeActions(edge: .trailing) { swipeActions(for: account) }
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) { swipeActions(for: account) }
         }
     }
 
@@ -72,10 +70,10 @@ struct ReportView: View {
 
     @ToolbarContentBuilder private var shareButton: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
-            if let url = session.csvURL {
-                ShareLink(item: url) { Image(systemName: "square.and.arrow.up") }
-                    .accessibilityLabel("Condividi CSV")
+            ShareLink(item: session.csvExport, preview: SharePreview("InstaSwipe.csv")) {
+                Image(systemName: "square.and.arrow.up")
             }
+            .accessibilityLabel("Condividi CSV")
         }
     }
 

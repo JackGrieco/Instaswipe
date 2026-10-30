@@ -62,6 +62,45 @@ private func legacyBackupData() throws -> Data {
     }
 }
 
+/// After a restore that cannot bring the followers back, their quarantined copies must stop
+/// blocking the load, without ever being deleted.
+@Test func discardQuarantinedRenamesBothCopiesAndUnblocksLoad() throws {
+    try withTempDirs { local, cloud in
+        for directory in [local, cloud] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try Data("{ not json".utf8).write(to: directory.appendingPathComponent("followers.json"))
+        }
+        try FileManager.default.createDirectory(at: local, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: local.appendingPathComponent("state.corrupt-20231114-000000.json"))
+        let store = FollowerStore(localDirectory: local, cloudDirectory: cloud)
+        #expect(throws: StateStoreError.self) { try store.load() }
+
+        let discarded = try store.discardQuarantined()
+
+        #expect(discarded.count == 2)
+        #expect(discarded.allSatisfy { $0.lastPathComponent.hasPrefix("followers.discarded-") })
+        #expect(try store.load() == nil)
+        for directory in [local, cloud] {
+            let files = names(directory).filter { $0.hasPrefix("followers.") }
+            #expect(files.count == 1)
+            #expect(files.allSatisfy { $0.hasPrefix("followers.discarded-") && $0.hasSuffix(".json") })
+            let kept = directory.appendingPathComponent(try #require(files.first))
+            #expect(try Data(contentsOf: kept) == Data("{ not json".utf8))
+        }
+        #expect(names(local).contains("state.corrupt-20231114-000000.json"))
+    }
+}
+
+@Test func discardQuarantinedWithNothingQuarantinedDoesNothing() throws {
+    try withTempDirs { local, cloud in
+        let store = FollowerStore(localDirectory: local, cloudDirectory: cloud)
+        try store.save(decidedFollowers(savedAt: 5))
+
+        #expect(try store.discardQuarantined().isEmpty)
+        #expect(names(local) == ["followers.json"])
+    }
+}
+
 @Test func followerStoreAbsentGivesNil() throws {
     try withTempDirs { local, cloud in
         let loaded = try FollowerStore(localDirectory: local, cloudDirectory: cloud).load()

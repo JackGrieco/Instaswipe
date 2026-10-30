@@ -15,8 +15,12 @@ public typealias FollowerStore = FileDocumentStore<FollowerState>
 public final class FileDocumentStore<Document: StoredDocument>: Sendable {
     private static var fileName: String { Document.fileName }
     /// `state.json` → `state.corrupt-`.
-    private static var quarantinePrefix: String {
-        "\((fileName as NSString).deletingPathExtension).corrupt-"
+    private static var quarantinePrefix: String { prefix("corrupt") }
+    /// `state.json` → `state.discarded-`: set aside for good, no longer blocks `load()`.
+    private static var discardPrefix: String { prefix("discarded") }
+
+    private static func prefix(_ tag: String) -> String {
+        "\((fileName as NSString).deletingPathExtension).\(tag)-"
     }
 
     private let localDirectory: URL
@@ -56,6 +60,16 @@ public final class FileDocumentStore<Document: StoredDocument>: Sendable {
             let quarantined = existingQuarantined()
             if quarantined.isEmpty { return nil }
             throw StateStoreError.corrupted(quarantined: quarantined)
+        }
+    }
+
+    /// Renames every quarantined copy (local and iCloud) to `<name>.discarded-<stamp>.json`, so
+    /// `load()` stops reporting them. Never deletes. For when no backup can replace the document.
+    /// Returns the new URLs.
+    public func discardQuarantined() throws -> [URL] {
+        let directories = [(localDirectory, false)] + (cloudDirectory.map { [($0, true)] } ?? [])
+        return try directories.flatMap { directory, isCloud in
+            try quarantined(in: directory).map { try moveAside($0, prefix: Self.discardPrefix, isCloud: isCloud) }
         }
     }
 
@@ -120,7 +134,7 @@ public final class FileDocumentStore<Document: StoredDocument>: Sendable {
         if let data, let state = try? StateCoding.decoder().decode(Document.self, from: data) {
             return .valid(state)
         }
-        return .quarantined(try quarantine(file, isCloud: isCloud))
+        return .quarantined(try moveAside(file, prefix: Self.quarantinePrefix, isCloud: isCloud))
     }
 
     /// A read failure inside the coordinator is treated as unreadable (returns nil);
@@ -137,10 +151,10 @@ public final class FileDocumentStore<Document: StoredDocument>: Sendable {
         return data
     }
 
-    /// Renames `file` to `<name>.corrupt-<stamp>.json`, adding `-2`, `-3`... if taken.
-    private func quarantine(_ file: URL, isCloud: Bool) throws -> URL {
+    /// Renames `file` to `<prefix><stamp>.json`, adding `-2`, `-3`... if taken.
+    private func moveAside(_ file: URL, prefix: String, isCloud: Bool) throws -> URL {
         let directory = file.deletingLastPathComponent()
-        let base = "\(Self.quarantinePrefix)\(FileNameStamp.timestamp(Date()))"
+        let base = "\(prefix)\(FileNameStamp.timestamp(Date()))"
         var destination = directory.appendingPathComponent("\(base).json")
         var attempt = 2
         while FileManager.default.fileExists(atPath: destination.path) {
@@ -167,11 +181,14 @@ public final class FileDocumentStore<Document: StoredDocument>: Sendable {
     /// All `<name>.corrupt-*.json` files in both directories, sorted by path.
     private func existingQuarantined() -> [URL] {
         let directories = [localDirectory] + (cloudDirectory.map { [$0] } ?? [])
-        return directories.flatMap { directory -> [URL] in
-            let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
-            return names
-                .filter { $0.hasPrefix(Self.quarantinePrefix) && $0.hasSuffix(".json") }
-                .map { directory.appendingPathComponent($0) }
-        }.sorted { $0.path < $1.path }
+        return directories.flatMap(quarantined(in:)).sorted { $0.path < $1.path }
+    }
+
+    private func quarantined(in directory: URL) -> [URL] {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        return names
+            .filter { $0.hasPrefix(Self.quarantinePrefix) && $0.hasSuffix(".json") }
+            .sorted()
+            .map { directory.appendingPathComponent($0) }
     }
 }

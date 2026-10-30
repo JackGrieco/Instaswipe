@@ -88,7 +88,7 @@ struct SwipeView: View {
             ReturnPromptSheet(
                 account: model.list(prompt.mode)?.accounts.first { $0.username == username },
                 username: username,
-                title: ReportSession.promptTitle(for: username, mode: prompt.mode),
+                title: prompt.mode.returnPromptTitle(for: username),
                 thumbnails: thumbnails,
                 onConfirm: {
                     session.confirmReturnPrompt()

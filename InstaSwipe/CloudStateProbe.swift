@@ -33,6 +33,7 @@ private final class MetadataQueryRun {
     private static let logger = Logger(subsystem: "com.giacomogrieco.InstaSwipe", category: "CloudStateProbe")
 
     private let query = NSMetadataQuery()
+    private var fileName = ""
     private var observer: (any NSObjectProtocol)?
     private var timeoutTask: Task<Void, Never>?
     private var continuation: CheckedContinuation<CloudProbeAnswer, Never>?
@@ -40,6 +41,7 @@ private final class MetadataQueryRun {
     func run(fileName: String, timeout: Duration) async -> CloudProbeAnswer {
         await withCheckedContinuation { continuation in
             self.continuation = continuation
+            self.fileName = fileName
             query.searchScopes = [NSMetadataQueryUbiquitousDocumentsScope]
             query.predicate = NSPredicate(format: "%K == %@", NSMetadataItemFSNameKey, fileName)
             observer = NotificationCenter.default.addObserver(
@@ -50,11 +52,12 @@ private final class MetadataQueryRun {
             timeoutTask = Task { [weak self] in
                 try? await Task.sleep(for: timeout)
                 guard !Task.isCancelled else { return }
-                Self.logger.info("iCloud state query timed out")
-                self?.finish(.unknown)
+                guard let self else { return }
+                Self.logger.info("iCloud query for \(self.fileName, privacy: .public) timed out")
+                self.finish(.unknown)
             }
             if !query.start() {
-                Self.logger.error("iCloud state query did not start")
+                Self.logger.error("iCloud query for \(fileName, privacy: .public) did not start")
                 finish(.unknown)
             }
         }
@@ -63,7 +66,7 @@ private final class MetadataQueryRun {
     private func gathered() {
         query.disableUpdates()
         let urls = query.results.compactMap { ($0 as? NSMetadataItem)?.value(forAttribute: NSMetadataItemURLKey) as? URL }
-        Self.logger.info("iCloud state query found \(urls.count, privacy: .public) item(s)")
+        Self.logger.info("iCloud query for \(self.fileName, privacy: .public) found \(urls.count, privacy: .public) item(s)")
         urls.forEach(startDownloading)
         finish(urls.isEmpty ? .absent : .found)
     }

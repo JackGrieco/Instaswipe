@@ -17,7 +17,6 @@ final class FollowersModeFlowTests: XCTestCase {
         XCTAssertTrue(picker.waitForExistence(timeout: 5))
 
         tap(picker.buttons["Follower"], until: username.label.contains("fan_01"))
-        add(XCTAttachment(screenshot: app.screenshot()))
 
         tap(app.buttons["keepButton"], until: username.label.contains("fan_02"))
 
@@ -25,6 +24,7 @@ final class FollowersModeFlowTests: XCTestCase {
     }
 
     /// Taps that land during an animation are sometimes dropped: retry until `condition` holds.
+    @MainActor
     private func tap(
         _ element: XCUIElement,
         until condition: @autoclosure () -> Bool,

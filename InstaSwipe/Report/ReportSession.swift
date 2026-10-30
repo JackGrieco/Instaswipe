@@ -115,14 +115,7 @@ final class ReportSession {
     }
 
     func promptTitle(for username: String) -> String {
-        Self.promptTitle(for: username, mode: returnPrompt.prompt?.mode ?? model.listMode)
-    }
-
-    static func promptTitle(for username: String, mode: ListMode) -> String {
-        switch mode {
-        case .following: "Hai tolto il follow a @\(username)?"
-        case .followers: "Hai rimosso @\(username) dai follower?"
-        }
+        (returnPrompt.prompt?.mode ?? model.listMode).returnPromptTitle(for: username)
     }
 
     func dismissPrompt() {
@@ -151,8 +144,7 @@ struct CSVExport: Transferable, Sendable {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = timeZone
         formatter.dateFormat = "yyyy-MM-dd"
-        let prefix = mode == .followers ? "InstaSwipe-follower" : "InstaSwipe"
-        return "\(prefix)-\(formatter.string(from: now)).csv"
+        return "\(mode.csvFilePrefix)-\(formatter.string(from: now)).csv"
     }
 
     func writeFile() throws -> URL {

@@ -85,7 +85,7 @@ struct SwipeEndView: View {
                 .padding(.top, 22)
                 .riseIn(delay: 0.1)
             if onShowEveryone != nil {
-                Text(mode == .followers ? "Hai rivisto tutti quelli che non segui." : "Hai rivisto tutti quelli che non ti seguono.")
+                Text(mode.filterFinishedMessage)
                     .font(.outfit(15))
                     .foregroundStyle(Theme.ink2)
                     .multilineTextAlignment(.center)
@@ -104,7 +104,7 @@ struct SwipeEndView: View {
                 .padding(.top, 32)
                 .riseIn(delay: 0.3)
             if let onShowEveryone {
-                Button(mode == .followers ? "Mostra anche chi segui" : "Mostra anche chi ti segue", action: onShowEveryone)
+                Button(mode.showEveryoneButton, action: onShowEveryone)
                     .buttonStyle(OutlineCapsuleButtonStyle())
                     .padding(.top, 14)
                     .riseIn(delay: 0.35)

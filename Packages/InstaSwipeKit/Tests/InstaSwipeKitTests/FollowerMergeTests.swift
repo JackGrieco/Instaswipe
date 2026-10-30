@@ -76,6 +76,24 @@ struct FollowerMergeTests {
         #expect(result.summary.refollowed == 1)
     }
 
+    /// The real shape: removed, then gone from an export (no longer following), then back with a
+    /// later "ti segue dal".
+    @Test func refollowAfterLeavingTheExportReopens() {
+        var gone = Self.removedFollower("aa")
+        gone.stillInLatestExport = false
+        let current = Fixtures.followers([gone])
+        let newDate = Self.removedAt.addingTimeInterval(Self.dayLength)
+
+        let result = MergeEngine.previewFollowers(current: current, exported: [Self.export("aa", newDate)], now: Self.now)
+
+        let account = result.followers.accounts[0]
+        #expect(account.decision == .pending)
+        #expect(account.unfollowedManually == false)
+        #expect(account.stillInLatestExport == true)
+        #expect(account.followedSince == newDate)
+        #expect(result.summary.refollowed == 1)
+    }
+
     @Test func olderExportKeepsRemovedFollowerDone() {
         let current = Fixtures.followers([Self.removedFollower("aa")])
         let older = Self.removedAt.addingTimeInterval(-Self.dayLength)

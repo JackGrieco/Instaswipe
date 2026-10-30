@@ -20,7 +20,8 @@ public struct AccountList: ReviewList, Equatable {
     }
 }
 
-extension AppState: ReviewList {
+extension ReviewList {
+    /// The accounts and the counter as a plain `AccountList`; setting it writes both back.
     public var list: AccountList {
         get { AccountList(accounts: accounts, totalDecisionsMade: totalDecisionsMade) }
         set {
@@ -29,3 +30,5 @@ extension AppState: ReviewList {
         }
     }
 }
+
+extension AppState: ReviewList {}

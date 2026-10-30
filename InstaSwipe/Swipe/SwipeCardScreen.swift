@@ -241,7 +241,7 @@ private struct SwipeHeader: View {
             }
             ListModePicker(mode: $session.mode, isDisabled: isFilterLocked)
             Toggle(isOn: $session.isNotFollowingBackOnly.animation(.easeOut(duration: 0.2))) {
-                Label(session.mode == .followers ? "Solo chi non segui" : "Solo chi non ti segue", systemImage: "person.fill.xmark")
+                Label(session.mode.notFollowingBackFilter, systemImage: "person.fill.xmark")
                     .font(.outfit(14, .medium))
                     .foregroundStyle(Theme.ink2)
             }

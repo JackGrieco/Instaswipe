@@ -21,12 +21,4 @@ public struct FollowerState: Codable, Sendable, Equatable, ReviewList {
     public static func empty(now: Date) -> FollowerState {
         FollowerState(schemaVersion: currentSchemaVersion, savedAt: now, accounts: [], totalDecisionsMade: 0)
     }
-
-    public var list: AccountList {
-        get { AccountList(accounts: accounts, totalDecisionsMade: totalDecisionsMade) }
-        set {
-            accounts = newValue.accounts
-            totalDecisionsMade = newValue.totalDecisionsMade
-        }
-    }
 }

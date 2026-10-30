@@ -24,7 +24,7 @@ struct ReportRow: View {
                     .foregroundStyle(Theme.ink2)
                     .lineLimit(1)
                 if account.followsMe {
-                    Text(mode == .followers ? "lo segui" : "ti segue").font(.outfit(12, .medium)).foregroundStyle(Theme.green)
+                    Text(mode.followsBackTag).font(.outfit(12, .medium)).foregroundStyle(Theme.green)
                 }
             }
             Spacer(minLength: 0)

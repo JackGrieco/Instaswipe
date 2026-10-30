@@ -375,10 +375,8 @@ final class AppModel {
     private static func replacingList<Document: ReviewList>(
         of document: Document, with transform: (AccountList) -> AccountList
     ) -> Document {
-        let changed = transform(AccountList(accounts: document.accounts, totalDecisionsMade: document.totalDecisionsMade))
         var next = document
-        next.accounts = changed.accounts
-        next.totalDecisionsMade = changed.totalDecisionsMade
+        next.list = transform(document.list)
         return next
     }
 

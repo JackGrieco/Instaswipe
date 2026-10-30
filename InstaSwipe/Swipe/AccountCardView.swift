@@ -97,12 +97,12 @@ struct AccountCardView: View {
             }
             HStack(spacing: 8) {
                 if let since = account.followedSince {
-                    Text("\(mode == .followers ? "Ti segue dal" : "Lo segui dal") \(Self.dateFormatter.string(from: since))")
+                    Text("\(mode.sinceLabel) \(Self.dateFormatter.string(from: since))")
                         .font(.outfit(14))
                         .foregroundStyle(.white.opacity(0.8))
                 }
                 if account.followsMe {
-                    TagPill(text: mode == .followers ? "Lo segui" : "Ti segue", foreground: .white, background: Theme.green.opacity(0.92), weight: .bold)
+                    TagPill(text: mode.followsBackBadge, foreground: .white, background: Theme.green.opacity(0.92), weight: .bold)
                 }
             }
             .padding(.top, 6)

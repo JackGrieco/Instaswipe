@@ -32,6 +32,15 @@ final class ExportTutorialFlowTests: XCTestCase {
         button.tap()
     }
 
+    /// Every tab has its own settings button; only the visible one opens the sheet.
+    private func openSettings(_ app: XCUIApplication) {
+        XCTAssertTrue(app.buttons["Impostazioni"].firstMatch.waitForExistence(timeout: waitTimeout))
+        let visible = app.buttons.matching(identifier: "gearshape").allElementsBoundByIndex.first { $0.isHittable }
+        XCTAssertNotNil(visible, "no visible settings button")
+        visible?.tap()
+        XCTAssertTrue(app.navigationBars["Impostazioni"].waitForExistence(timeout: waitTimeout))
+    }
+
     @MainActor
     func testResumesFromImportAfterReachingTheWaitPhase() throws {
         let app = makeApp()
@@ -69,6 +78,23 @@ final class ExportTutorialFlowTests: XCTestCase {
         assertPhase(app, 1)
 
         relaunch(app)
+        assertPhase(app, 4)
+    }
+
+    @MainActor
+    func testSettingsTutorialResumesAtImport() throws {
+        let app = makeApp()
+        app.launchArguments.append("-uiTestSeed")
+        app.launch()
+        openSettings(app)
+        tap(app, "Come esportare da Instagram")
+        assertPhase(app, 1)
+        tap(app, "tutorialNextButton")
+        tap(app, "tutorialNextButton")
+        assertPhase(app, 3)
+
+        tap(app, "tutorialCloseButton")
+        tap(app, "Come esportare da Instagram")
         assertPhase(app, 4)
     }
 }

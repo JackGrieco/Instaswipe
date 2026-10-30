@@ -13,6 +13,7 @@ struct ExportTutorialView: View {
     @Bindable var model: AppModel
     let context: TutorialContext
     @State private var phase: TutorialPhase
+    @Environment(\.dismiss) private var dismiss
 
     init(model: AppModel, context: TutorialContext) {
         self.model = model
@@ -29,11 +30,14 @@ struct ExportTutorialView: View {
         .onChange(of: phase, initial: true) { _, current in
             if current == .waitForEmail { model.markExportStarted() }
         }
+        // As a sheet the root alert is hidden underneath; the merge summary shows its own.
+        .errorAlert(model, isActive: context == .settings && model.pendingMerge == nil)
     }
 
     private var content: some View {
         ScrollView {
             VStack(spacing: 0) {
+                if context == .settings { closeRow.padding(.bottom, 8) }
                 if context == .onboarding && phase == .openExport { brand.padding(.bottom, 32) }
                 TutorialPhaseView(phase: phase).id(phase)
                 phaseFooter.padding(.top, 16)
@@ -57,6 +61,16 @@ struct ExportTutorialView: View {
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+
+    private var closeRow: some View {
+        HStack {
+            Spacer()
+            Button("Chiudi") { dismiss() }
+                .font(.outfit(16, .medium))
+                .foregroundStyle(Theme.ink2)
+                .accessibilityIdentifier("tutorialCloseButton")
+        }
     }
 
     private var brand: some View {

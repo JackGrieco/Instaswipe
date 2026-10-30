@@ -37,6 +37,12 @@ public final class FileDocumentStore<Document: StoredDocument>: Sendable {
         case quarantined(URL)
     }
 
+    /// True when this device has its own copy of the document (readable or not). Read it before
+    /// `load()`, which also saves a copy taken from iCloud locally.
+    public var hasLocalCopy: Bool {
+        FileManager.default.fileExists(atPath: localDirectory.appendingPathComponent(Self.fileName).path)
+    }
+
     /// `nil` only when no document file, placeholder or quarantined file exists anywhere.
     public func load() throws -> Document? {
         let local = try inspect(directory: localDirectory, isCloud: false)

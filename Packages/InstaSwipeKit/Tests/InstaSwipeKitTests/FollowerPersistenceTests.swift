@@ -101,6 +101,21 @@ private func legacyBackupData() throws -> Data {
     }
 }
 
+/// Tells a device that already had its own copy apart from one recovering the copy from iCloud.
+@Test func hasLocalCopyIsFalseUntilACopyIsSavedLocally() throws {
+    try withTempDirs { local, cloud in
+        let store = FileStateStore(localDirectory: local, cloudDirectory: cloud)
+        #expect(!store.hasLocalCopy)
+        try store.mirrorToCloud(Fixtures.state([]))
+        #expect(!store.hasLocalCopy)
+
+        _ = try store.load()
+
+        #expect(store.hasLocalCopy)
+        #expect(!FollowerStore(localDirectory: local, cloudDirectory: cloud).hasLocalCopy)
+    }
+}
+
 @Test func followerStoreAbsentGivesNil() throws {
     try withTempDirs { local, cloud in
         let loaded = try FollowerStore(localDirectory: local, cloudDirectory: cloud).load()

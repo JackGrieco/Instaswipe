@@ -102,21 +102,40 @@ struct CloudStateProbeTests {
 
     // MARK: followers.json not yet listed by iCloud
 
-    /// Local state.json only; the cloud folder is empty, as on a fresh install before iCloud lists the files.
+    private func stateWithOneAccount() -> AppState {
+        var state = AppState.empty(now: Date(timeIntervalSince1970: 1_700_000_000))
+        state.accounts = [FollowedAccount(username: "a", profileURL: URL(string: "https://www.instagram.com/_u/a")!, followedSince: nil)]
+        return state
+    }
+
+    /// Fresh install: no local files, iCloud has state.json but has not listed followers.json yet.
     private func modelWithStateOnly(probe: FakeCloudStateProbe) throws -> (model: AppModel, local: URL, cloud: URL) {
         let local = try TestSupport.makeDirectory()
         let cloud = try TestSupport.makeDirectory()
-        var state = AppState.empty(now: Date(timeIntervalSince1970: 1_700_000_000))
-        state.accounts = [FollowedAccount(username: "a", profileURL: URL(string: "https://www.instagram.com/_u/a")!, followedSince: nil)]
-        try FileStateStore(localDirectory: local, cloudDirectory: nil).save(state)
+        try StateCoding.encoder().encode(stateWithOneAccount()).write(to: cloud.appendingPathComponent("state.json"))
         let model = AppModel(environment: TestSupport.environment(local: local, cloud: cloud), cloudProbe: probe)
         return (model, local, cloud)
+    }
+
+    /// A device with its own state.json and no followers.json simply never imported followers.
+    @Test func localStateWithoutFollowersSkipsTheProbe() throws {
+        let local = try TestSupport.makeDirectory()
+        try FileStateStore(localDirectory: local, cloudDirectory: nil).save(stateWithOneAccount())
+        let probe = FakeCloudStateProbe(existing: ["followers.json"])
+
+        let model = AppModel(environment: TestSupport.environment(local: local, cloud: try TestSupport.makeDirectory()), cloudProbe: probe)
+
+        #expect(probe.calls.isEmpty)
+        #expect(model.cloudCheckTask == nil)
+        #expect(model.rootScreen == .main)
+        #expect(model.followers == nil)
     }
 
     @Test func probeFindsCloudFollowersSoAppWaitsAndSavesNothing() async throws {
         let probe = FakeCloudStateProbe(existing: ["followers.json"])
         let (model, local, cloud) = try modelWithStateOnly(probe: probe)
         #expect(model.rootScreen == .checkingCloud)
+        // The load already copied the iCloud state locally; nothing may change it afterwards.
         let stateBefore = try Data(contentsOf: local.appendingPathComponent("state.json"))
 
         await model.cloudCheckTask?.value

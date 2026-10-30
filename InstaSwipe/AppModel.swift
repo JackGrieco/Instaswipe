@@ -64,6 +64,9 @@ final class AppModel {
     private var cloudRetryTask: Task<Void, Never>?
     private let cloudProbe: (any CloudStateProbe)?
     private(set) var cloudCheckTask: Task<Void, Never>?
+    /// This device had its own state.json before this launch's first load. Then a missing
+    /// followers.json means "never imported followers", not "not yet listed by iCloud".
+    private let hadLocalStateAtLaunch: Bool
     /// File names already asked of the probe: once per launch each.
     private var checkedCloudFiles: Set<String> = []
     /// File names the probe saw in iCloud: keep waiting for them, never treat them as absent.
@@ -85,6 +88,7 @@ final class AppModel {
         listMode = environment.defaults.string(forKey: Self.listModeKey).flatMap(ListMode.init(rawValue:)) ?? .following
         store = FileStateStore(localDirectory: environment.localDirectory, cloudDirectory: environment.cloudDirectory)
         followerStore = FollowerStore(localDirectory: environment.localDirectory, cloudDirectory: environment.cloudDirectory)
+        hadLocalStateAtLaunch = store.hasLocalCopy
         let backupsRoot = environment.cloudDirectory ?? environment.localDirectory
         backups = BackupRotator(directory: backupsRoot.appendingPathComponent("Backups", isDirectory: true))
         attemptLoad()
@@ -166,7 +170,7 @@ final class AppModel {
 
     private func finishLoading(state loaded: AppState?, followers loadedFollowers: FollowerState?) {
         loadError = nil
-        if let missing = Self.missingFileName(state: loaded, followers: loadedFollowers),
+        if let missing = cloudFileToLookFor(state: loaded, followers: loadedFollowers),
            deferToCloud(fileName: missing) { return }
         isWaitingForCloud = false
         quarantinedFileNames = []
@@ -178,10 +182,11 @@ final class AppModel {
         }
     }
 
-    /// The file to look for in iCloud: state.json first, then followers.json. Nil when both loaded.
-    private static func missingFileName(state: AppState?, followers: FollowerState?) -> String? {
+    /// The file to look for in iCloud: state.json when missing; followers.json only when the state
+    /// itself was just recovered from iCloud (fresh install, reinstall, new device). Nil otherwise.
+    private func cloudFileToLookFor(state: AppState?, followers: FollowerState?) -> String? {
         if state == nil { return AppState.fileName }
-        return followers == nil ? FollowerState.fileName : nil
+        return followers == nil && !hadLocalStateAtLaunch ? FollowerState.fileName : nil
     }
 
     /// With iCloud on and a file not found, the iCloud copy may simply not be visible yet: ask the

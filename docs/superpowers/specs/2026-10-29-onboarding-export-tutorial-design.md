@@ -121,18 +121,24 @@ Giacomo ha fornito 9 screenshot (`~/Desktop/Screen`, 1320×2868, Centro gestione
 
 | Passo | File | Schermata |
 |---|---|---|
+| 1 | `IMG_7739` | Profilo con ☰ in alto a destra (tema scuro, solo la parte alta) |
+| 2 | `IMG_7740` | «Impostazioni e attività» con «Account Meta» |
+| 3 | `IMG_7741` | «Account Meta» con «Le tue informazioni e autorizzazioni» |
+| 4 | `IMG_7742` | «Le tue informazioni e autorizzazioni» con «Esporta le tue informazioni» |
 | 5 | `IMG_7744` | «Esporta le tue informazioni» con il pulsante «Crea esportazione» |
 | 6 | `IMG_7745` | «Scegli dove effettuare l'esportazione» |
 | 7 | `IMG_7747` | «Personalizza informazioni», solo «Follower e persone/Pagine seguite» spuntato |
 | 8 | `IMG_7748` | «Intervallo di date» su «Sempre» |
 | 9 | `IMG_7749` | «Formato» su «JSON» |
 | 10 | `IMG_7750` | «Qualità dei contenuti multimediali» su «Qualità inferiore» |
-| 11 | `IMG_7746` | «Conferma la tua esportazione» (il pulsante «Avvia esportazione» è più in basso, fuori dallo screenshot) |
+| 11 | `IMG_7753` | «Conferma la tua esportazione» già configurata, con «Avvia esportazione» (sostituisce `IMG_7746`, che mostrava i valori predefiniti) |
 | 12 | `IMG_7751` | «Scarica i tuoi file» con «Download» |
+| 13 | `IMG_7754` | Selettore file sulla cartella `connections` con «Apri» |
 
 - *(Mia scelta)* Il passo 12 mostra la pagina di download di Meta invece dell'app File: è lo screenshot disponibile e corrisponde alla prima metà del passo.
 - *(Mia scelta)* `IMG_7743` («Scegli un profilo») **non si usa**: contiene nome e cognome, numero di telefono e altri account. Il passo 5 ha già `IMG_7744`.
-- **Mancano ancora** i passi 1–4 (profilo e ☰, «Account Meta», «Le tue informazioni e autorizzazioni», «Esporta le tue informazioni») e 13 (selettore di InstaSwipe). Al loro posto c'è il riquadro neutro finché non arrivano.
+- Screenshot aggiunti il 2026-10-30: passi 1–4, 11 (rifatto) e 13. Tutti i passi da 1 a 13 hanno ora uno screenshot.
+- Coperture aggiuntive: nel passo 1 username, foto, nome, numeri e bio (i post restano fuori dal taglio); email e foto nel passo 3; data di nascita nel passo 4; foto, username ed email nel nuovo passo 11. Negli screenshot a tema scuro le coperture sono grigio scuro.
 - **Oscuramento:** le copie messe nell'app coprono la foto profilo e lo username `giacomogrieco_` (7744, 7745, 7746, 7748, 7749, 7750, 7751), l'indirizzo email di terzi in 7746 e il riquadro «Download disponibili» con l'export già fatto in 7744. Si taglia anche la barra di stato. Gli originali in `~/Desktop/Screen` non si toccano.
 - **Finché uno screenshot manca**, al suo posto si mostra un riquadro neutro (superficie `Theme.surface2`, numero del passo al centro), così il tutorial si può costruire e provare subito, prima che arrivino le immagini.
 - **Privacy:** gli screenshot finiscono nell'app distribuita via TestFlight. Prima di aggiungerli, Giacomo deve coprire o ritagliare username, foto profilo, email e nomi di terzi.

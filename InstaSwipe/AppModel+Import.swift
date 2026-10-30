@@ -40,9 +40,10 @@ extension AppModel {
     /// preview was computed are never overwritten. Without followers files the follower list stays as is.
     func confirmImport() {
         guard let snapshot = pendingSnapshot, !isBlocked else { return }
-        if let current = state {
+        if state != nil || followers != nil {
+            let current = BackupSnapshot(state: state ?? AppState.empty(now: now()), followers: followers)
             do {
-                try backups.backup(BackupSnapshot(state: current, followers: followers), kind: .preImport, now: now())
+                try backups.backup(current, kind: .preImport, now: now())
             } catch {
                 Self.logger.error("Pre-import backup failed: \(error.localizedDescription)")
                 errorMessage = "Import annullato: non sono riuscito a fare la copia di sicurezza (\(error.localizedDescription))."

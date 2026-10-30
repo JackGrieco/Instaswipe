@@ -1,22 +1,21 @@
 import Foundation
 import os
 
-/// Answers "is there a saved state in iCloud?" even when its metadata has not reached
-/// this device's folder yet (e.g. right after a reinstall).
+/// Answers "is this saved file (state.json, followers.json) in iCloud?" even when its metadata
+/// has not reached this device's folder yet (e.g. right after a reinstall).
 @MainActor
 protocol CloudStateProbe {
-    func cloudStateExists() async -> Bool
+    func cloudFileExists(named fileName: String) async -> Bool
 }
 
-/// Asks iCloud through an `NSMetadataQuery` for `state.json` in the Documents scope and waits for
+/// Asks iCloud through an `NSMetadataQuery` for the file in the Documents scope and waits for
 /// the first gathering, at most `timeout`. A timeout or a failed start counts as "not found".
 @MainActor
 final class MetadataCloudStateProbe: CloudStateProbe {
     private static let timeout: Duration = .seconds(15)
-    private static let fileName = "state.json"
 
-    func cloudStateExists() async -> Bool {
-        await MetadataQueryRun().run(fileName: Self.fileName, timeout: Self.timeout)
+    func cloudFileExists(named fileName: String) async -> Bool {
+        await MetadataQueryRun().run(fileName: fileName, timeout: Self.timeout)
     }
 }
 

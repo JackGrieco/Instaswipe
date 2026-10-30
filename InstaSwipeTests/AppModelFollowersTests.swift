@@ -125,6 +125,21 @@ struct AppModelFollowersTests {
         #expect(snapshot.followers?.accounts.first?.decision == .remove)
     }
 
+    @Test func preImportBackupIsTakenWhenOnlyFollowersExist() async throws {
+        let local = try TestSupport.makeDirectory()
+        try FollowerStore(localDirectory: local, cloudDirectory: nil).save(followers([account("aa", decision: .remove)], decisions: 1))
+        let model = AppModel(environment: TestSupport.environment(local: local))
+        #expect(model.state == nil)
+
+        await model.prepareImport(picked: [try TestSupport.makeExport(["aa"], followers: ["aa"])])
+        model.confirmImport()
+
+        let backups = local.appendingPathComponent("Backups", isDirectory: true)
+        let preImport = try #require(names(backups).first { $0.hasPrefix("preimport-") })
+        let snapshot = try StateCoding.decoder().decode(BackupSnapshot.self, from: try Data(contentsOf: backups.appendingPathComponent(preImport)))
+        #expect(snapshot.followers?.accounts.first?.decision == .remove)
+    }
+
     @Test func importAbortsWhenFollowerSaveFails() async throws {
         let local = try TestSupport.makeDirectory()
         try seed(local, state: state([account("aa")]))
@@ -242,16 +257,15 @@ struct AppModelFollowersTests {
         #expect(AppModel(environment: environment).listMode == .followers)
     }
 
-    @Test func dailyBackupHoldsBothLists() async throws {
-        let (model, local) = try await importedModel()
-        model.apply(.followers) { Review.decide(.keep, username: "cc", in: $0, now: Date()) }
+    @Test func dailyBackupWrittenOnImportHoldsBothLists() async throws {
+        let (_, local) = try await importedModel()
 
         let backups = local.appendingPathComponent("Backups", isDirectory: true)
         let daily = try #require(names(backups).first { $0.hasPrefix("daily-") })
         let data = try Data(contentsOf: backups.appendingPathComponent(daily))
         let snapshot = try StateCoding.decoder().decode(BackupSnapshot.self, from: data)
-        #expect(snapshot.followers?.accounts.count == 2)
-        #expect(model.followers != nil)
+        #expect(snapshot.state.accounts.map(\.username) == ["aa", "bb"])
+        #expect(snapshot.followers?.accounts.map(\.username) == ["aa", "cc"])
     }
 
     // MARK: Load failures
@@ -301,18 +315,28 @@ struct AppModelFollowersTests {
 
     // MARK: Restore
 
-    /// Corrupt state.json; the Backups folder is returned (created on demand by `writeBackup`).
-    private func corruptedState() throws -> (local: URL, backups: URL) {
-        let local = try TestSupport.makeDirectory()
-        try Data("not json".utf8).write(to: local.appendingPathComponent("state.json"))
-        return (local, local.appendingPathComponent("Backups", isDirectory: true))
+    private func corrupt(_ name: String, in local: URL) throws {
+        try Data("not json".utf8).write(to: local.appendingPathComponent(name))
+    }
+
+    private func backupsFolder(_ local: URL) -> URL {
+        local.appendingPathComponent("Backups", isDirectory: true)
+    }
+
+    private func writeSnapshot(_ snapshot: BackupSnapshot, named name: String, in local: URL, modified: TimeInterval) throws {
+        try writeBackup(try StateCoding.encoder().encode(snapshot), named: name, in: backupsFolder(local), modified: modified)
+    }
+
+    private func fileData(_ name: String, in local: URL) throws -> Data {
+        try Data(contentsOf: local.appendingPathComponent(name))
     }
 
     @Test func restoreBringsBackFollowers() throws {
-        let (local, backups) = try corruptedState()
+        let local = try TestSupport.makeDirectory()
+        try corrupt("state.json", in: local)
+        try corrupt("followers.json", in: local)
         let backedUp = followers([account("ff", decision: .remove)], decisions: 1)
-        let snapshot = BackupSnapshot(state: state([account("aa")]), followers: backedUp)
-        try writeBackup(try StateCoding.encoder().encode(snapshot), named: "step-100.json", in: backups, modified: 1_700_000_000)
+        try writeSnapshot(BackupSnapshot(state: state([account("aa")]), followers: backedUp), named: "step-100.json", in: local, modified: 1_700_000_000)
         let model = AppModel(environment: TestSupport.environment(local: local))
 
         model.prepareRestore()
@@ -320,36 +344,63 @@ struct AppModelFollowersTests {
         model.confirmRestore()
 
         #expect(model.loadError == nil)
+        #expect(model.quarantinedFileNames.isEmpty)
+        #expect(model.state?.accounts.map(\.username) == ["aa"])
         #expect(model.followers?.accounts == backedUp.accounts)
         #expect(model.followers?.totalDecisionsMade == 1)
         #expect(try loadFollowers(local)?.accounts == backedUp.accounts)
     }
 
-    @Test func restoreFromOldBackupKeepsReadableFollowersFile() throws {
-        let (local, backups) = try corruptedState()
-        let current = followers([account("ff", decision: .keep)], decisions: 1)
-        try FollowerStore(localDirectory: local, cloudDirectory: nil).save(current)
-        let fileBefore = try Data(contentsOf: local.appendingPathComponent("followers.json"))
-        try writeBackup(try StateCoding.encoder().encode(state([account("aa")])), named: "daily-2023-11-14.json", in: backups, modified: 1_700_000_000)
+    /// Case A: only followers.json is unreadable; the readable state must not roll back.
+    @Test func restoreKeepsReadableStateWhenOnlyFollowersAreCorrupt() throws {
+        let local = try TestSupport.makeDirectory()
+        try seed(local, state: state([account("aa", decision: .keep), account("new")]))
+        try corrupt("followers.json", in: local)
+        let stateBefore = try fileData("state.json", in: local)
+        let backedUp = followers([account("aa", decision: .remove)], decisions: 1)
+        try writeSnapshot(BackupSnapshot(state: state([account("old")]), followers: backedUp), named: "daily-2023-11-14.json", in: local, modified: 1_700_000_000)
         let model = AppModel(environment: TestSupport.environment(local: local))
 
         model.prepareRestore()
+        #expect(model.pendingRestore?.state == nil)
+        model.confirmRestore()
+
+        #expect(model.loadError == nil)
+        #expect(try fileData("state.json", in: local) == stateBefore)
+        #expect(model.state?.accounts.map(\.username) == ["aa", "new"])
+        #expect(model.followers?.accounts.map(\.decision) == [.remove])
+        #expect(try loadFollowers(local)?.accounts.map(\.username) == ["aa"])
+    }
+
+    /// Case B: only state.json is unreadable; readable followers must not roll back, even
+    /// when the backup has followers.
+    @Test func restoreKeepsReadableFollowersWhenOnlyStateIsCorrupt() throws {
+        let local = try TestSupport.makeDirectory()
+        try corrupt("state.json", in: local)
+        let current = followers([account("ff", decision: .keep), account("gg", decision: .remove)], decisions: 2)
+        try FollowerStore(localDirectory: local, cloudDirectory: nil).save(current)
+        let followersBefore = try fileData("followers.json", in: local)
+        let older = followers([account("ff")])
+        try writeSnapshot(BackupSnapshot(state: state([account("aa")]), followers: older), named: "step-100.json", in: local, modified: 1_700_000_000)
+        let model = AppModel(environment: TestSupport.environment(local: local))
+
+        model.prepareRestore()
+        #expect(model.pendingRestore?.followers == nil)
         model.confirmRestore()
 
         #expect(model.loadError == nil)
         #expect(model.state?.accounts.map(\.username) == ["aa"])
         #expect(model.followers?.accounts == current.accounts)
-        #expect(try Data(contentsOf: local.appendingPathComponent("followers.json")) == fileBefore)
+        #expect(try fileData("followers.json", in: local) == followersBefore)
     }
 
     @Test func restoreTakesFollowersFromOlderBackupWhenFileIsCorrupt() throws {
-        let (local, backups) = try corruptedState()
-        try Data("not json".utf8).write(to: local.appendingPathComponent("followers.json"))
+        let local = try TestSupport.makeDirectory()
+        try corrupt("state.json", in: local)
+        try corrupt("followers.json", in: local)
         let older = followers([account("ff", decision: .remove)], decisions: 1)
-        let encoder = StateCoding.encoder()
-        try writeBackup(try encoder.encode(BackupSnapshot(state: state([account("old")]), followers: older)),
-                        named: "step-100.json", in: backups, modified: 1_700_000_000)
-        try writeBackup(try encoder.encode(state([account("aa")])), named: "daily-2023-11-16.json", in: backups, modified: 1_700_200_000)
+        try writeSnapshot(BackupSnapshot(state: state([account("old")]), followers: older), named: "step-100.json", in: local, modified: 1_700_000_000)
+        try writeSnapshot(BackupSnapshot(state: state([account("aa")]), followers: nil), named: "daily-2023-11-16.json", in: local, modified: 1_700_200_000)
         let model = AppModel(environment: TestSupport.environment(local: local))
         #expect(model.quarantinedFileNames.count == 2)
 
@@ -363,8 +414,9 @@ struct AppModelFollowersTests {
     }
 
     @Test func restoreWithoutAnyFollowerBackupLeavesFollowersNil() throws {
-        let (local, backups) = try corruptedState()
-        try writeBackup(try StateCoding.encoder().encode(state([account("aa")])), named: "daily-2023-11-14.json", in: backups, modified: 1_700_000_000)
+        let local = try TestSupport.makeDirectory()
+        try corrupt("state.json", in: local)
+        try writeSnapshot(BackupSnapshot(state: state([account("aa")]), followers: nil), named: "daily-2023-11-14.json", in: local, modified: 1_700_000_000)
         let model = AppModel(environment: TestSupport.environment(local: local))
 
         model.prepareRestore()
@@ -373,6 +425,63 @@ struct AppModelFollowersTests {
         #expect(model.state?.accounts.map(\.username) == ["aa"])
         #expect(model.followers == nil)
         #expect(!FileManager.default.fileExists(atPath: local.appendingPathComponent("followers.json").path))
+    }
+
+    /// No backup holds followers: their quarantined copy is set aside, so the next launch loads.
+    @Test func unrecoverableFollowersNoLongerBlockTheNextLaunch() throws {
+        let local = try TestSupport.makeDirectory()
+        try corrupt("state.json", in: local)
+        try corrupt("followers.json", in: local)
+        try writeSnapshot(BackupSnapshot(state: state([account("aa")]), followers: nil), named: "daily-2023-11-14.json", in: local, modified: 1_700_000_000)
+        let model = AppModel(environment: TestSupport.environment(local: local))
+
+        model.prepareRestore()
+        #expect(model.pendingRestore?.discardsFollowers == true)
+        model.confirmRestore()
+        let relaunched = AppModel(environment: TestSupport.environment(local: local))
+
+        #expect(model.rootScreen == .main)
+        #expect(relaunched.rootScreen == .main)
+        #expect(relaunched.followers == nil)
+        #expect(relaunched.state?.accounts.map(\.username) == ["aa"])
+        #expect(names(local).contains { $0.hasPrefix("followers.discarded-") })
+        #expect(!names(local).contains { $0.hasPrefix("followers.corrupt-") })
+    }
+
+    /// Readable state, unreadable followers and no backup at all: setting the followers aside is
+    /// still possible, otherwise the app would stay blocked for good.
+    @Test func corruptFollowersWithoutAnyBackupCanBeSetAside() throws {
+        let local = try TestSupport.makeDirectory()
+        try seed(local, state: state([account("aa")]))
+        try corrupt("followers.json", in: local)
+        let stateBefore = try fileData("state.json", in: local)
+        let model = AppModel(environment: TestSupport.environment(local: local))
+
+        model.prepareRestore()
+        #expect(model.errorMessage == nil)
+        model.confirmRestore()
+
+        #expect(model.rootScreen == .main)
+        #expect(model.followers == nil)
+        #expect(try fileData("state.json", in: local) == stateBefore)
+        #expect(AppModel(environment: TestSupport.environment(local: local)).rootScreen == .main)
+    }
+
+    @Test func restoreTextNamesOnlyTheRestoredLists() {
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        var restoredState = state([account("aa", decision: .keep), account("bb")])
+        restoredState.savedAt = date
+        let stateOnly = RestorePlan(state: restoredState, followers: nil, discardsFollowers: false)
+        let followersOnly = RestorePlan(state: nil, followers: followers([account("ff", decision: .remove), account("gg", decision: .keep)]), discardsFollowers: false)
+        let discardOnly = RestorePlan(state: nil, followers: nil, discardsFollowers: true)
+
+        #expect(stateOnly.title.hasPrefix("Ripristinare la copia del "))
+        #expect(stateOnly.message.contains("Following: 1 decisioni"))
+        #expect(stateOnly.message.contains("I follower restano come sono."))
+        #expect(followersOnly.message.contains("Follower: 2 decisioni"))
+        #expect(followersOnly.message.contains("I following restano come sono."))
+        #expect(discardOnly.title == "Mettere da parte i follower illeggibili?")
+        #expect(discardOnly.message.contains("reimporta"))
     }
 
     // MARK: UI-test seed

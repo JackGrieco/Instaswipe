@@ -21,13 +21,18 @@ struct ReportView: View {
         List {
             Group {
                 header
+                // The picker stays in the invite too, so the user can switch back.
                 ListModePicker(mode: $model.listMode)
-                ReportCounterCard(session: session)
-                ReportFilterPicker(session: session)
-                ReportSearchField(text: $session.searchText)
+                if session.isAwaitingFollowerImport {
+                    NoFollowersView().padding(.vertical, 36)
+                } else {
+                    ReportCounterCard(session: session)
+                    ReportFilterPicker(session: session)
+                    ReportSearchField(text: $session.searchText)
+                }
             }
             .reportListRow(insets: EdgeInsets(top: 7, leading: 16, bottom: 7, trailing: 16))
-            rowsList
+            if !session.isAwaitingFollowerImport { rowsList }
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
@@ -48,19 +53,25 @@ struct ReportView: View {
                 .foregroundStyle(Theme.ink)
                 .accessibilityAddTraits(.isHeader)
             Spacer()
-            ShareLink(item: session.csvExport, preview: SharePreview("InstaSwipe.csv")) {
-                Image(systemName: "square.and.arrow.up")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(Theme.ink)
-                    .frame(width: 40, height: 40)
-                    .background(Circle().fill(Theme.surface2))
-            }
-            .buttonStyle(PressScaleButtonStyle(scale: 0.92))
-            .accessibilityLabel("Condividi CSV")
+            // Nothing to export before the follower list exists.
+            if !session.isAwaitingFollowerImport { shareButton }
             SettingsButton()
         }
         .padding(.horizontal, 4)
         .padding(.top, 4)
+    }
+
+    private var shareButton: some View {
+        let export = session.csvExport
+        return ShareLink(item: export, preview: SharePreview(export.fileName)) {
+            Image(systemName: "square.and.arrow.up")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(Theme.ink)
+                .frame(width: 40, height: 40)
+                .background(Circle().fill(Theme.surface2))
+        }
+        .buttonStyle(PressScaleButtonStyle(scale: 0.92))
+        .accessibilityLabel("Condividi CSV")
     }
 
     @ViewBuilder private var rowsList: some View {

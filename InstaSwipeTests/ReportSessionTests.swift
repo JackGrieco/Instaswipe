@@ -237,6 +237,24 @@ struct ReportSessionTests {
         #expect(account("aa", in: model)?.unfollowedManually == false)
     }
 
+    /// Spec: Follower mode with no follower list invites a reimport instead of an empty list.
+    @Test func followerModeWithoutFollowersInvitesReimport() throws {
+        let (session, model) = try makeSession()
+        #expect(!session.isAwaitingFollowerImport)
+
+        model.listMode = .followers
+
+        #expect(session.isAwaitingFollowerImport)
+    }
+
+    @Test func followerModeWithFollowersShowsTheList() throws {
+        let (session, model) = try makeSession(followers: [makeAccount("f1", decision: .remove)])
+
+        model.listMode = .followers
+
+        #expect(!session.isAwaitingFollowerImport)
+    }
+
     @Test func followerCSVFileName() throws {
         let (session, model) = try makeSession(followers: [makeAccount("f1", decision: .remove)])
         model.listMode = .followers

@@ -22,11 +22,8 @@ struct UnfollowBar: View {
                     .accessibilityIdentifier("unfollowBarCounter")
             }
             if isOverDailyWarning {
-                Text("Hai superato i \(Limits.dailyUnfollowWarning) di oggi: meglio fermarsi per evitare blocchi da Instagram.")
-                    .font(.outfit(13))
-                    .foregroundStyle(Theme.warningText)
+                DailyLimitWarning()
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .fixedSize(horizontal: false, vertical: true)
             }
             Button("Fatto, non lo seguo più", action: onDone)
                 .buttonStyle(GradientButtonStyle(height: 50))

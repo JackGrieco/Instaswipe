@@ -143,7 +143,7 @@ final class SwipeSession {
     }
 
     var screen: Screen {
-        if mode == .followers, model.followers == nil { return .noFollowers }
+        if model.isAwaitingFollowerImport { return .noFollowers }
         guard let current else { return .finished }
         let status = budgetStatus
         if case .available = status { return .card }

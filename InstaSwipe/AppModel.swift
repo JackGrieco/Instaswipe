@@ -414,6 +414,11 @@ final class AppModel {
         )
     }
 
+    /// Follower mode before any follower list exists: swipe and "Da togliere" invite a reimport.
+    var isAwaitingFollowerImport: Bool {
+        listMode == .followers && followers == nil
+    }
+
     /// Unfollows and follower removals marked done today, for the shared daily warning.
     func actionsToday(now: Date, calendar: Calendar) -> Int {
         ListMode.allCases.compactMap(list).map { Report.unfollowsToday(in: $0, now: now, calendar: calendar) }.reduce(0, +)

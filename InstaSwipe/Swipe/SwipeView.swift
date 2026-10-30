@@ -89,6 +89,7 @@ struct SwipeView: View {
                 account: model.list(prompt.mode)?.accounts.first { $0.username == username },
                 username: username,
                 title: prompt.mode.returnPromptTitle(for: username),
+                isOverDailyWarning: session.isOverDailyUnfollowWarning,
                 thumbnails: thumbnails,
                 onConfirm: {
                     session.confirmReturnPrompt()

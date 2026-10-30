@@ -33,6 +33,9 @@ final class ReportSession {
 
     private var activeList: AccountList? { model.list(model.listMode) }
 
+    /// Follower mode with no follower list: the view shows the reimport invite instead of the list.
+    var isAwaitingFollowerImport: Bool { model.isAwaitingFollowerImport }
+
     var rows: [FollowedAccount] {
         activeList.map { Report.accounts(filter, search: searchText, in: $0) } ?? []
     }

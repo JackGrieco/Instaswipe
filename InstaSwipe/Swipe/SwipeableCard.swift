@@ -12,6 +12,7 @@ struct SwipeableCard: View {
     let account: FollowedAccount
     let imageURL: URL?
     let isOffline: Bool
+    let mode: ListMode
     @Binding var dragOffset: CGSize
     let onRelease: (CGSize) -> Void
     let onTap: () -> Void
@@ -23,6 +24,7 @@ struct SwipeableCard: View {
         account: FollowedAccount,
         imageURL: URL?,
         isOffline: Bool,
+        mode: ListMode = .following,
         dragOffset: Binding<CGSize>,
         entryDecision: Decision?,
         onRelease: @escaping (CGSize) -> Void,
@@ -31,6 +33,7 @@ struct SwipeableCard: View {
         self.account = account
         self.imageURL = imageURL
         self.isOffline = isOffline
+        self.mode = mode
         _dragOffset = dragOffset
         self.onRelease = onRelease
         self.onTap = onTap
@@ -48,7 +51,7 @@ struct SwipeableCard: View {
     private var stampProgress: CGFloat { min(abs(offsetX) / SwipeCardScreen.decisionThreshold, 1) }
 
     var body: some View {
-        AccountCardView(account: account, imageURL: imageURL, isOffline: isOffline)
+        AccountCardView(account: account, imageURL: imageURL, isOffline: isOffline, mode: mode)
             .overlay(alignment: .topLeading) {
                 if offsetX > 0 {
                     Stamp(text: "TENGO", color: Theme.green, angle: -14, progress: stampProgress)

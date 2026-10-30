@@ -78,9 +78,11 @@ struct RootView: View {
         .sheet(isPresented: $settings.isPresented) { SettingsView(model: model) }
     }
 
-    /// Badge on "Da togliere": accounts still to unfollow; 0 hides it.
+    /// Badge on "Da togliere": accounts still to do in both lists; 0 hides it.
     private var toDoCount: Int {
-        model.state.map { Report.counts(in: $0)[.toDo] ?? 0 } ?? 0
+        ListMode.allCases.reduce(0) { total, mode in
+            total + (model.list(mode).map { Report.counts(in: $0)[.toDo] ?? 0 } ?? 0)
+        }
     }
 
     @ViewBuilder private var banners: some View {

@@ -73,7 +73,7 @@ struct SwipeCardScreen: View {
             if let next = session.next {
                 AccountCardView(
                     account: next, imageURL: session.imageURL(for: next.username),
-                    isOffline: session.isOfflineSession, isFront: false
+                    isOffline: session.isOfflineSession, mode: session.mode, isFront: false
                 )
                     .scaleEffect(0.92 + 0.08 * dragProgress)
                     .offset(y: 14 - 14 * dragProgress)
@@ -87,6 +87,7 @@ struct SwipeCardScreen: View {
                     account: current,
                     imageURL: session.imageURL(for: current.username),
                     isOffline: session.isOfflineSession,
+                    mode: session.mode,
                     dragOffset: $dragOffset,
                     entryDecision: entryDecision ?? session.revertedEntryDecision,
                     onRelease: release,
@@ -238,8 +239,9 @@ private struct SwipeHeader: View {
                     .foregroundStyle(Theme.ink2)
                     .accessibilityIdentifier("progressLabel")
             }
+            ListModePicker(mode: $session.mode, isDisabled: isFilterLocked)
             Toggle(isOn: $session.isNotFollowingBackOnly.animation(.easeOut(duration: 0.2))) {
-                Label("Solo chi non ti segue", systemImage: "person.fill.xmark")
+                Label(session.mode == .followers ? "Solo chi non segui" : "Solo chi non ti segue", systemImage: "person.fill.xmark")
                     .font(.outfit(14, .medium))
                     .foregroundStyle(Theme.ink2)
             }

@@ -5,6 +5,7 @@ struct ReturnPromptSheet: View {
     /// Nil only if the account vanished from the state while the sheet was up.
     let account: FollowedAccount?
     let username: String
+    let title: String
     let thumbnails: ThumbnailCache
     let onConfirm: () -> Void
     let onNotYet: () -> Void
@@ -15,7 +16,7 @@ struct ReturnPromptSheet: View {
             if let account {
                 AvatarView(account: account, thumbnails: thumbnails, size: 64)
             }
-            Text("Hai tolto il follow a @\(username)?")
+            Text(title)
                 .font(.outfit(21, .bold))
                 .tracking(-0.01, size: 21)
                 .foregroundStyle(Theme.ink)

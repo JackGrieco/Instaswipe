@@ -1,7 +1,7 @@
 import InstaSwipeKit
 import SwiftUI
 
-/// "Oggi: N unfollow segnati" with a meter up to the daily warning, orange once past it.
+/// "Oggi: N azioni segnate" with a meter up to the daily warning, orange once past it.
 struct ReportCounterCard: View {
     let session: ReportSession
 

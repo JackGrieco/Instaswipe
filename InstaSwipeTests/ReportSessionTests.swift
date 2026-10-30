@@ -119,6 +119,15 @@ struct ReportSessionTests {
         #expect(account("dd", in: model)?.availability == .unknown)
     }
 
+    @Test func retryAvailabilityResetsTheProfileInBothLists() throws {
+        let (session, model) = try makeSession(followers: [makeAccount("dd", decision: .remove, availability: .unavailable)])
+
+        session.retryAvailability(username: "dd")
+
+        #expect(account("dd", in: model)?.availability == .unknown)
+        #expect(model.followers?.accounts.first { $0.username == "dd" }?.availability == .unknown)
+    }
+
     @Test func promptAppearsAfterReturningFromBackground() throws {
         let (session, _) = try makeSession()
 

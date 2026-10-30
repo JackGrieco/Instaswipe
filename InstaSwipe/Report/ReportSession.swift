@@ -73,7 +73,7 @@ final class ReportSession {
     }
 
     func retryAvailability(username: String) {
-        model.apply(model.listMode) {
+        model.applyToBothLists {
             Review.markAvailability(.unknown, displayName: nil, username: username, in: $0)
         }
     }
@@ -115,7 +115,11 @@ final class ReportSession {
     }
 
     func promptTitle(for username: String) -> String {
-        switch returnPrompt.prompt?.mode ?? model.listMode {
+        Self.promptTitle(for: username, mode: returnPrompt.prompt?.mode ?? model.listMode)
+    }
+
+    static func promptTitle(for username: String, mode: ListMode) -> String {
+        switch mode {
         case .following: "Hai tolto il follow a @\(username)?"
         case .followers: "Hai rimosso @\(username) dai follower?"
         }

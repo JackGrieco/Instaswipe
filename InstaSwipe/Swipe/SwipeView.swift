@@ -46,6 +46,9 @@ struct SwipeView: View {
             .overlay(alignment: .topTrailing) { SettingsButton().padding(.trailing, 20).padding(.top, 4) }
         case .card:
             SwipeCardScreen(session: session, toast: $toast)
+        case .noFollowers:
+            Text("Nessun follower importato")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 

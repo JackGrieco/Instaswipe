@@ -11,12 +11,7 @@ import UniformTypeIdentifiers
 final class ReportSession {
     var filter = ReportFilter.toDo
     var searchText = ""
-    /// Account whose profile was just opened in Instagram; the prompt waits for the app to come back.
-    private(set) var returnPromptUsername: String?
-    /// Account the "did you unfollow?" sheet is about; non-nil while the sheet is shown.
-    private(set) var promptUsername: String?
-
-    @ObservationIgnored private var hasLeftApp = false
+    let returnPrompt = ReturnPromptTracker()
     @ObservationIgnored private let model: AppModel
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private let calendar: Calendar
@@ -82,27 +77,19 @@ final class ReportSession {
 
     // MARK: Return from Instagram
 
+    /// Account whose profile was just opened in Instagram; the prompt waits for the app to come back.
+    var returnPromptUsername: String? { returnPrompt.pending?.username }
+    /// Account the "did you unfollow?" sheet is about; non-nil while the sheet is shown.
+    var promptUsername: String? { returnPrompt.prompt?.username }
+
     /// Returns the URL to open. Only accounts marked "Tolgo" get the return prompt.
     func open(_ account: FollowedAccount) -> URL {
-        returnPromptUsername = account.decision == .remove ? account.username : nil
-        hasLeftApp = false
+        returnPrompt.willOpen(account.decision == .remove ? .init(username: account.username, mode: .following) : nil)
         return account.profileURL
     }
 
-    /// The `.active` that fires right after the tap is ignored: the prompt needs a real round trip.
     func scenePhaseChanged(_ phase: ScenePhase) {
-        guard returnPromptUsername != nil else { return }
-        switch phase {
-        case .inactive, .background:
-            hasLeftApp = true
-        case .active:
-            guard hasLeftApp else { return }
-            promptUsername = returnPromptUsername
-            returnPromptUsername = nil
-            hasLeftApp = false
-        @unknown default:
-            break
-        }
+        returnPrompt.scenePhaseChanged(phase)
     }
 
     func confirmUnfollowed() {
@@ -116,7 +103,7 @@ final class ReportSession {
     }
 
     func dismissPrompt() {
-        promptUsername = nil
+        returnPrompt.dismiss()
     }
 
     // MARK: CSV

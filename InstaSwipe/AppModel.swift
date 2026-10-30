@@ -388,7 +388,8 @@ final class AppModel {
                 followedSince: base.addingTimeInterval(Double(index) * 86_400)
             )
         }
-        let snapshot = ExportSnapshot(follows: follows, followers: ["test_02"])
+        let followers = follows.filter { $0.username == "test_02" }
+        let snapshot = ExportSnapshot(follows: follows, followers: followers)
         persist(MergeEngine.preview(current: nil, snapshot: snapshot, now: now()).state)
     }
 }

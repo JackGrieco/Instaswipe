@@ -30,6 +30,7 @@ public enum MergeEngine {
     public static func preview(current: AppState?, snapshot: ExportSnapshot, now: Date) -> MergePreview {
         let base = current ?? AppState.empty(now: now)
         let exportedUsernames = Set(snapshot.follows.map(\.username))
+        let followerUsernames = snapshot.followerUsernames
         let existingUsernames = Set(base.accounts.map(\.username))
         let activeBefore = base.accounts.filter(\.stillInLatestExport).count
 
@@ -39,7 +40,7 @@ public enum MergeEngine {
         let updated = base.accounts.map { account -> FollowedAccount in
             var next = account
             if exportedUsernames.contains(account.username) {
-                return refreshed(account, followsMe: snapshot.followers.contains(account.username))
+                return refreshed(account, followsMe: followerUsernames?.contains(account.username) ?? account.followsMe)
             }
             if account.stillInLatestExport { noLongerFollowed += 1 }
             next.stillInLatestExport = false
@@ -58,7 +59,7 @@ public enum MergeEngine {
                     username: follow.username,
                     profileURL: follow.profileURL,
                     followedSince: follow.followedSince,
-                    followsMe: snapshot.followers.contains(follow.username)
+                    followsMe: followerUsernames?.contains(follow.username) ?? false
                 )
             }
 

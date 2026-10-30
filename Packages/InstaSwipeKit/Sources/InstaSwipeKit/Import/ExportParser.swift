@@ -29,8 +29,9 @@ public enum ExportParser {
         }
     }
 
-    public static func parseFollowers(_ data: Data) throws -> Set<String> {
-        Set(try entries(in: data).compactMap(username(from:)))
+    /// Same file shape as following; `followedSince` is when that account started following you.
+    public static func parseFollowers(_ data: Data) throws -> [ExportedFollow] {
+        try parseFollowing(data)
     }
 
     /// Instagram exports UTF-8 bytes re-encoded as Latin-1 scalars; undo that when possible.

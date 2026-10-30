@@ -13,11 +13,21 @@ struct ExportParserTests {
     }
 
     @Test func parsesFollowersArrayWithEmptyTitle() throws {
-        #expect(try ExportParser.parseFollowers(Fixtures.followersJSON(["zoe"])) == ["zoe"])
+        #expect(try ExportParser.parseFollowers(Fixtures.followersJSON(["zoe"])).map(\.username) == ["zoe"])
     }
 
     @Test func parseFollowersLowercases() throws {
-        #expect(try ExportParser.parseFollowers(Fixtures.followersJSON(["Zoe"])) == ["zoe"])
+        #expect(try ExportParser.parseFollowers(Fixtures.followersJSON(["Zoe"])).map(\.username) == ["zoe"])
+    }
+
+    @Test func parseFollowersKeepsTimestamp() throws {
+        let json = #"[{"string_list_data":[{"value":"aa","timestamp":1600000000}]}]"#
+        let f = try ExportParser.parseFollowers(Data(json.utf8))
+        #expect(f == [ExportedFollow(
+            username: "aa",
+            profileURL: URL(string: "https://www.instagram.com/_u/aa")!,
+            followedSince: Date(timeIntervalSince1970: 1_600_000_000)
+        )])
     }
 
     @Test func usernameFallsBackToValueThenHref() throws {

@@ -12,12 +12,15 @@ public struct ExportFiles: Equatable {
 
 public struct ExportSnapshot: Equatable, Sendable {
     public let follows: [ExportedFollow]
-    public let followers: Set<String>
+    /// `nil` when the export has no `followers*.json` file (as opposed to an empty list).
+    public let followers: [ExportedFollow]?
 
-    public init(follows: [ExportedFollow], followers: Set<String>) {
+    public init(follows: [ExportedFollow], followers: [ExportedFollow]?) {
         self.follows = follows
         self.followers = followers
     }
+
+    public var followerUsernames: Set<String>? { followers.map { Set($0.map(\.username)) } }
 }
 
 public enum ExportLocator {
@@ -44,10 +47,21 @@ public enum ExportLocator {
     }
 
     public static func load(_ files: ExportFiles) throws -> ExportSnapshot {
+        let follows = try loadDeduplicated(files.following, parse: ExportParser.parseFollowing)
+        let followers = files.followers.isEmpty
+            ? nil
+            : try loadDeduplicated(files.followers, parse: ExportParser.parseFollowers)
+        return ExportSnapshot(follows: follows, followers: followers)
+    }
+
+    /// Parses every file, keeping one entry per username (the oldest) in first-seen order.
+    private static func loadDeduplicated(
+        _ urls: [URL], parse: (Data) throws -> [ExportedFollow]
+    ) throws -> [ExportedFollow] {
         var oldestByUsername: [String: ExportedFollow] = [:]
         var order: [String] = []
-        for url in files.following {
-            for follow in try ExportParser.parseFollowing(Data(contentsOf: url)) {
+        for url in urls {
+            for follow in try parse(Data(contentsOf: url)) {
                 guard let existing = oldestByUsername[follow.username] else {
                     oldestByUsername[follow.username] = follow
                     order.append(follow.username)
@@ -58,11 +72,7 @@ public enum ExportLocator {
                 }
             }
         }
-        var followers = Set<String>()
-        for url in files.followers {
-            followers.formUnion(try ExportParser.parseFollowers(Data(contentsOf: url)))
-        }
-        return ExportSnapshot(follows: order.compactMap { oldestByUsername[$0] }, followers: followers)
+        return order.compactMap { oldestByUsername[$0] }
     }
 
     private static func sortedByName(_ urls: [URL]) -> [URL] {

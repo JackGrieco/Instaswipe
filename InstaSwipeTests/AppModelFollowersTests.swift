@@ -405,6 +405,7 @@ struct AppModelFollowersTests {
         #expect(model.quarantinedFileNames.count == 2)
 
         model.prepareRestore()
+        #expect(model.pendingRestore?.isFromTwoBackups == true)
         model.confirmRestore()
 
         #expect(model.loadError == nil)
@@ -465,6 +466,51 @@ struct AppModelFollowersTests {
         #expect(model.followers == nil)
         #expect(try fileData("state.json", in: local) == stateBefore)
         #expect(AppModel(environment: TestSupport.environment(local: local)).rootScreen == .main)
+    }
+
+    /// A pre-import backup taken with followers only holds an empty placeholder state: newer, but
+    /// never the state a restore offers.
+    @Test func restoreIgnoresPlaceholderStateButUsesItsFollowers() throws {
+        let local = try TestSupport.makeDirectory()
+        try corrupt("state.json", in: local)
+        try corrupt("followers.json", in: local)
+        let placeholderFollowers = followers([account("ff", decision: .keep)], decisions: 1)
+        try writeSnapshot(BackupSnapshot(state: state([account("aa")]), followers: nil), named: "daily-2023-11-14.json", in: local, modified: 1_700_000_000)
+        try writeSnapshot(BackupSnapshot(state: state([]), followers: placeholderFollowers), named: "preimport-20231115-000000.json", in: local, modified: 1_700_100_000)
+        let model = AppModel(environment: TestSupport.environment(local: local))
+
+        model.prepareRestore()
+
+        #expect(model.pendingRestore?.state?.accounts.map(\.username) == ["aa"])
+        #expect(model.pendingRestore?.followers?.accounts == placeholderFollowers.accounts)
+    }
+
+    @Test func confirmRestoreAbortsWhenTheBackupsChangedSinceTheDialog() throws {
+        let local = try TestSupport.makeDirectory()
+        try corrupt("state.json", in: local)
+        try writeSnapshot(BackupSnapshot(state: state([account("aa")]), followers: nil), named: "daily-2023-11-14.json", in: local, modified: 1_700_000_000)
+        let model = AppModel(environment: TestSupport.environment(local: local))
+        model.prepareRestore()
+        try writeSnapshot(BackupSnapshot(state: state([account("zz")]), followers: nil), named: "daily-2023-11-15.json", in: local, modified: 1_700_100_000)
+
+        model.confirmRestore()
+
+        #expect(model.errorMessage == "I file sono cambiati nel frattempo: riprova il ripristino.")
+        #expect(model.loadError != nil)
+        #expect(model.pendingRestore == nil)
+        #expect(!FileManager.default.fileExists(atPath: local.appendingPathComponent("state.json").path))
+    }
+
+    @Test func restoreTextShowsBothDatesWhenTheListsComeFromTwoBackups() {
+        var older = followers([account("ff", decision: .remove)])
+        older.savedAt = Date(timeIntervalSince1970: 1_600_000_000)
+        let plan = RestorePlan(state: state([account("aa", decision: .keep)]), followers: older, discardsFollowers: false, isFromTwoBackups: true)
+        let stateDate = Date(timeIntervalSince1970: 1_700_000_000).formatted(date: .abbreviated, time: .shortened)
+        let followersDate = older.savedAt.formatted(date: .abbreviated, time: .shortened)
+
+        #expect(plan.title == "Ripristinare le copie di sicurezza?")
+        #expect(plan.message.contains("Following: 1 decisioni dalla copia del \(stateDate)."))
+        #expect(plan.message.contains("Follower: 1 decisioni dalla copia del \(followersDate)."))
     }
 
     @Test func restoreTextNamesOnlyTheRestoredLists() {

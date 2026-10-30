@@ -7,16 +7,20 @@ import Testing
 final class FakeCloudStateProbe: CloudStateProbe {
     /// File names the fake iCloud holds.
     let existing: Set<String>
+    /// File names whose query times out.
+    let timingOut: Set<String>
     /// File names asked for, in order.
     private(set) var calls: [String] = []
 
-    init(existing: Set<String>) {
+    init(existing: Set<String>, timingOut: Set<String> = []) {
         self.existing = existing
+        self.timingOut = timingOut
     }
 
-    func cloudFileExists(named fileName: String) async -> Bool {
+    func cloudFile(named fileName: String) async -> CloudProbeAnswer {
         calls = calls + [fileName]
-        return existing.contains(fileName)
+        if timingOut.contains(fileName) { return .unknown }
+        return existing.contains(fileName) ? .found : .absent
     }
 }
 
@@ -110,11 +114,75 @@ struct CloudStateProbeTests {
 
     /// Fresh install: no local files, iCloud has state.json but has not listed followers.json yet.
     private func modelWithStateOnly(probe: FakeCloudStateProbe) throws -> (model: AppModel, local: URL, cloud: URL) {
-        let local = try TestSupport.makeDirectory()
+        let launch = try freshInstall(probe: probe)
+        return (launch.model, launch.environment.localDirectory, try #require(launch.environment.cloudDirectory))
+    }
+
+    private func freshInstall(probe: FakeCloudStateProbe) throws -> (model: AppModel, environment: AppEnvironment) {
         let cloud = try TestSupport.makeDirectory()
         try StateCoding.encoder().encode(stateWithOneAccount()).write(to: cloud.appendingPathComponent("state.json"))
-        let model = AppModel(environment: TestSupport.environment(local: local, cloud: cloud), cloudProbe: probe)
-        return (model, local, cloud)
+        let environment = TestSupport.environment(local: try TestSupport.makeDirectory(), cloud: cloud)
+        return (AppModel(environment: environment, cloudProbe: probe), environment)
+    }
+
+    private func isFollowerProbePending(_ environment: AppEnvironment) -> Bool {
+        environment.defaults.bool(forKey: "followerCloudProbePending")
+    }
+
+    /// Force-quit on the waiting screen: the first launch already copied state.json locally, but
+    /// the next one must still look for the followers instead of offering a reimport.
+    @Test func relaunchDuringTheFollowerWaitStillWaits() async throws {
+        let (first, environment) = try freshInstall(probe: FakeCloudStateProbe(existing: ["followers.json"]))
+        await first.cloudCheckTask?.value
+        #expect(first.rootScreen == .waitingForCloud)
+        let probe = FakeCloudStateProbe(existing: ["followers.json"])
+
+        let relaunched = AppModel(environment: environment, cloudProbe: probe)
+        await relaunched.cloudCheckTask?.value
+
+        #expect(probe.calls == ["followers.json"])
+        #expect(relaunched.rootScreen == .waitingForCloud)
+        #expect(isFollowerProbePending(environment))
+    }
+
+    @Test func probeTimeoutKeepsLookingOnTheNextLaunch() async throws {
+        let (first, environment) = try freshInstall(probe: FakeCloudStateProbe(existing: [], timingOut: ["followers.json"]))
+        await first.cloudCheckTask?.value
+        #expect(first.rootScreen == .main)
+        #expect(first.followers == nil)
+        #expect(isFollowerProbePending(environment))
+        let probe = FakeCloudStateProbe(existing: [])
+
+        let relaunched = AppModel(environment: environment, cloudProbe: probe)
+        await relaunched.cloudCheckTask?.value
+
+        #expect(probe.calls == ["followers.json"])
+        #expect(relaunched.rootScreen == .main)
+        #expect(!isFollowerProbePending(environment))
+    }
+
+    @Test func definiteAbsenceStopsTheProbeOnLaterLaunches() async throws {
+        let (first, environment) = try freshInstall(probe: FakeCloudStateProbe(existing: []))
+        await first.cloudCheckTask?.value
+        #expect(!isFollowerProbePending(environment))
+        let probe = FakeCloudStateProbe(existing: ["followers.json"])
+
+        let relaunched = AppModel(environment: environment, cloudProbe: probe)
+
+        #expect(probe.calls.isEmpty)
+        #expect(relaunched.rootScreen == .main)
+    }
+
+    @Test func loadedFollowersClearThePendingFlag() async throws {
+        let (first, environment) = try freshInstall(probe: FakeCloudStateProbe(existing: ["followers.json"]))
+        await first.cloudCheckTask?.value
+        let followers = FollowerState.empty(now: Date(timeIntervalSince1970: 1_700_000_000))
+        try StateCoding.encoder().encode(followers).write(to: try #require(environment.cloudDirectory).appendingPathComponent("followers.json"))
+
+        first.retryLoad()
+
+        #expect(first.rootScreen == .main)
+        #expect(!isFollowerProbePending(environment))
     }
 
     /// A device with its own state.json and no followers.json simply never imported followers.

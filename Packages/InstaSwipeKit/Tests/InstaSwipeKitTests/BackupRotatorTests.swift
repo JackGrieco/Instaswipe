@@ -171,3 +171,36 @@ private func setModified(_ name: String, in directory: URL, _ date: Date) throws
         #expect(try rotator.newestValidBackup() == nil)
     }
 }
+
+/// A pre-import backup taken before any following existed holds an empty placeholder state: it
+/// must never become the state a restore puts back, but its followers still count.
+@Test func newestStateBackupSkipsBackupsWithoutAccounts() throws {
+    try withTempDir { dir in
+        let rotator = BackupRotator(directory: dir)
+        let encoder = StateCoding.encoder()
+        let withAccounts = Fixtures.state([Fixtures.account("aa", since: nil)])
+        let placeholder = BackupSnapshot(state: Fixtures.state([]), followers: Fixtures.followers([Fixtures.account("ff", since: nil)]))
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try encoder.encode(withAccounts).write(to: dir.appendingPathComponent("daily-2023-11-14.json"))
+        try encoder.encode(placeholder).write(to: dir.appendingPathComponent("preimport-20231115-000000.json"))
+        try setModified("daily-2023-11-14.json", in: dir, day(0))
+        try setModified("preimport-20231115-000000.json", in: dir, day(1))
+
+        let state = try #require(try rotator.newestStateBackup())
+        let followers = try #require(try rotator.newestFollowersBackup())
+
+        #expect(state.name == "daily-2023-11-14.json")
+        #expect(state.snapshot.state.accounts.map(\.username) == ["aa"])
+        #expect(followers.name == "preimport-20231115-000000.json")
+        #expect(try rotator.newestValidBackup()?.state.accounts.isEmpty == true)
+    }
+}
+
+@Test func newestStateBackupIsNilWhenEveryStateIsEmpty() throws {
+    try withTempDir { dir in
+        let rotator = BackupRotator(directory: dir)
+        try rotator.backup(snapshotWith(decisions: 0), kind: .preImport, now: day(0))
+
+        #expect(try rotator.newestStateBackup() == nil)
+    }
+}

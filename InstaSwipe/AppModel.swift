@@ -17,6 +17,9 @@ final class AppModel {
     static let logger = Logger(subsystem: "com.giacomogrieco.InstaSwipe", category: "AppModel")
     private static let cloudRetryInterval: Duration = .seconds(2)
     private static let listModeKey = "listMode"
+    /// Set while iCloud may still hold a followers.json this device has not seen: survives a
+    /// relaunch during the wait and a probe timeout, cleared by a definite answer.
+    private static let followerProbePendingKey = "followerCloudProbePending"
 
     /// Always `Linking.linked` with `followers`, so "ti segue" never trusts a stale state.json.
     private(set) var state: AppState?
@@ -174,6 +177,7 @@ final class AppModel {
            deferToCloud(fileName: missing) { return }
         isWaitingForCloud = false
         quarantinedFileNames = []
+        if loadedFollowers != nil { setFollowerProbePending(false) }
         setLinked(state: loaded, followers: loadedFollowers)
         if loaded != nil {
             scheduleCloudMirror()
@@ -183,10 +187,20 @@ final class AppModel {
     }
 
     /// The file to look for in iCloud: state.json when missing; followers.json only when the state
-    /// itself was just recovered from iCloud (fresh install, reinstall, new device). Nil otherwise.
+    /// itself was just recovered from iCloud (fresh install, reinstall, new device) or an earlier
+    /// launch did not get a definite answer about it. Nil otherwise.
     private func cloudFileToLookFor(state: AppState?, followers: FollowerState?) -> String? {
         if state == nil { return AppState.fileName }
-        return followers == nil && !hadLocalStateAtLaunch ? FollowerState.fileName : nil
+        guard followers == nil, !hadLocalStateAtLaunch || isFollowerProbePending else { return nil }
+        return FollowerState.fileName
+    }
+
+    private var isFollowerProbePending: Bool {
+        environment.defaults.bool(forKey: Self.followerProbePendingKey)
+    }
+
+    private func setFollowerProbePending(_ isPending: Bool) {
+        environment.defaults.set(isPending, forKey: Self.followerProbePendingKey)
     }
 
     /// With iCloud on and a file not found, the iCloud copy may simply not be visible yet: ask the
@@ -200,18 +214,24 @@ final class AppModel {
         }
         guard isCloudAvailable, !checkedCloudFiles.contains(fileName), let cloudProbe else { return false }
         checkedCloudFiles = checkedCloudFiles.union([fileName])
+        if fileName == FollowerState.fileName { setFollowerProbePending(true) }
         isCheckingCloud = true
         cloudCheckTask = Task { [weak self] in
-            let exists = await cloudProbe.cloudFileExists(named: fileName)
-            self?.cloudCheckFinished(fileName: fileName, exists: exists)
+            let answer = await cloudProbe.cloudFile(named: fileName)
+            self?.cloudCheckFinished(fileName: fileName, answer: answer)
         }
         return true
     }
 
-    private func cloudCheckFinished(fileName: String, exists: Bool) {
-        Self.logger.info("iCloud probe for \(fileName, privacy: .public): \(exists ? "found" : "not found", privacy: .public)")
+    /// `.unknown` loads like `.absent` for now, but leaves the follower flag set for the next launch.
+    private func cloudCheckFinished(fileName: String, answer: CloudProbeAnswer) {
+        Self.logger.info("iCloud probe for \(fileName, privacy: .public): \(String(describing: answer), privacy: .public)")
         isCheckingCloud = false
-        if exists { expectedCloudFiles = expectedCloudFiles.union([fileName]) }
+        switch answer {
+        case .found: expectedCloudFiles = expectedCloudFiles.union([fileName])
+        case .absent where fileName == FollowerState.fileName: setFollowerProbePending(false)
+        case .absent, .unknown: break
+        }
         attemptLoad()
     }
 
@@ -240,20 +260,22 @@ final class AppModel {
         }
     }
 
-    /// A readable file is never replaced. An unreadable state comes from the newest readable backup;
-    /// unreadable followers from the newest backup holding followers (older builds share the folder
-    /// and may own the newest daily names), or are set aside when none does.
+    /// A readable file is never replaced. An unreadable state comes from the newest readable backup
+    /// with accounts; unreadable followers from the newest backup holding followers (older builds
+    /// share the folder and may own the newest daily names), or are set aside when none does.
     /// Nil when state.json was quarantined and no backup can replace it.
     private func makeRestorePlan() throws -> RestorePlan? {
         let stateCondition = try Self.condition(of: store.load)
         let followerCondition = try Self.condition(of: followerStore.load)
-        let restoredState = try stateCondition == .readable ? nil : backups.newestValidBackup()?.state
-        if stateCondition == .quarantined, restoredState == nil { return nil }
-        let restoredFollowers = try followerCondition == .readable ? nil : backups.newestValidFollowers()
+        let stateSource = try stateCondition == .readable ? nil : backups.newestStateBackup()
+        if stateCondition == .quarantined, stateSource == nil { return nil }
+        let followerSource = try followerCondition == .readable ? nil : backups.newestFollowersBackup()
+        let isFromTwoBackups = stateSource != nil && followerSource != nil && stateSource?.name != followerSource?.name
         return RestorePlan(
-            state: restoredState,
-            followers: restoredFollowers,
-            discardsFollowers: followerCondition == .quarantined && restoredFollowers == nil
+            state: stateSource?.snapshot.state,
+            followers: followerSource?.snapshot.followers,
+            discardsFollowers: followerCondition == .quarantined && followerSource == nil,
+            isFromTwoBackups: isFromTwoBackups
         )
     }
 
@@ -270,12 +292,29 @@ final class AppModel {
         pendingRestore = nil
     }
 
+    /// The files or backups may have changed while the dialog was up (iCloud, another device):
+    /// never write a plan the user did not see.
+    private func isStillCurrent(_ plan: RestorePlan) -> Bool {
+        do {
+            guard try makeRestorePlan() == plan else {
+                errorMessage = "I file sono cambiati nel frattempo: riprova il ripristino."
+                return false
+            }
+            return true
+        } catch {
+            Self.logger.error("Restore re-check failed: \(error.localizedDescription)")
+            errorMessage = "Non riesco a ricontrollare i file: \(error.localizedDescription)"
+            return false
+        }
+    }
+
     /// Writes only what the plan restores, then loads both files again, so the lists in memory are
     /// exactly what is on disk, linked. Quarantined files stay in place, except unrecoverable
     /// follower copies, which are renamed aside. Any failure keeps the app blocked.
     func confirmRestore() {
         guard let plan = pendingRestore, loadError != nil, !isWaitingForCloud, !isCheckingCloud else { return }
         pendingRestore = nil
+        guard isStillCurrent(plan) else { return }
         if plan.discardsFollowers {
             do {
                 _ = try followerStore.discardQuarantined()

@@ -5,16 +5,24 @@ import os
 /// has not reached this device's folder yet (e.g. right after a reinstall).
 @MainActor
 protocol CloudStateProbe {
-    func cloudFileExists(named fileName: String) async -> Bool
+    func cloudFile(named fileName: String) async -> CloudProbeAnswer
+}
+
+enum CloudProbeAnswer: Sendable, Equatable {
+    case found
+    /// iCloud answered, and the file is not there.
+    case absent
+    /// No answer (timeout, query did not start): the file may still be there.
+    case unknown
 }
 
 /// Asks iCloud through an `NSMetadataQuery` for the file in the Documents scope and waits for
-/// the first gathering, at most `timeout`. A timeout or a failed start counts as "not found".
+/// the first gathering, at most `timeout`. A timeout or a failed start answers `.unknown`.
 @MainActor
 final class MetadataCloudStateProbe: CloudStateProbe {
     private static let timeout: Duration = .seconds(15)
 
-    func cloudFileExists(named fileName: String) async -> Bool {
+    func cloudFile(named fileName: String) async -> CloudProbeAnswer {
         await MetadataQueryRun().run(fileName: fileName, timeout: Self.timeout)
     }
 }
@@ -27,9 +35,9 @@ private final class MetadataQueryRun {
     private let query = NSMetadataQuery()
     private var observer: (any NSObjectProtocol)?
     private var timeoutTask: Task<Void, Never>?
-    private var continuation: CheckedContinuation<Bool, Never>?
+    private var continuation: CheckedContinuation<CloudProbeAnswer, Never>?
 
-    func run(fileName: String, timeout: Duration) async -> Bool {
+    func run(fileName: String, timeout: Duration) async -> CloudProbeAnswer {
         await withCheckedContinuation { continuation in
             self.continuation = continuation
             query.searchScopes = [NSMetadataQueryUbiquitousDocumentsScope]
@@ -43,11 +51,11 @@ private final class MetadataQueryRun {
                 try? await Task.sleep(for: timeout)
                 guard !Task.isCancelled else { return }
                 Self.logger.info("iCloud state query timed out")
-                self?.finish(found: false)
+                self?.finish(.unknown)
             }
             if !query.start() {
                 Self.logger.error("iCloud state query did not start")
-                finish(found: false)
+                finish(.unknown)
             }
         }
     }
@@ -57,7 +65,7 @@ private final class MetadataQueryRun {
         let urls = query.results.compactMap { ($0 as? NSMetadataItem)?.value(forAttribute: NSMetadataItemURLKey) as? URL }
         Self.logger.info("iCloud state query found \(urls.count, privacy: .public) item(s)")
         urls.forEach(startDownloading)
-        finish(found: !urls.isEmpty)
+        finish(urls.isEmpty ? .absent : .found)
     }
 
     /// Best effort: the regular load retry also starts the download once the placeholder shows up.
@@ -69,13 +77,13 @@ private final class MetadataQueryRun {
         }
     }
 
-    private func finish(found: Bool) {
+    private func finish(_ answer: CloudProbeAnswer) {
         guard let continuation else { return }
         self.continuation = nil
         timeoutTask?.cancel()
         query.stop()
         if let observer { NotificationCenter.default.removeObserver(observer) }
         observer = nil
-        continuation.resume(returning: found)
+        continuation.resume(returning: answer)
     }
 }

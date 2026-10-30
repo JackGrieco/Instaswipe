@@ -6,6 +6,18 @@ public enum BackupKind: Sendable {
     case preImport
 }
 
+/// A decoded backup and the file it came from: two restore sources are the same backup when
+/// their names match.
+public struct BackupFile: Sendable, Equatable {
+    public let name: String
+    public let snapshot: BackupSnapshot
+
+    public init(name: String, snapshot: BackupSnapshot) {
+        self.name = name
+        self.snapshot = snapshot
+    }
+}
+
 /// Writes timestamped copies of both lists (see `BackupSnapshot`) and keeps only the newest of each kind.
 public struct BackupRotator: Sendable {
     private static let backupPrefixes = ["daily-", "step-", "preimport-"]
@@ -48,23 +60,29 @@ public struct BackupRotator: Sendable {
     /// modification date first, then newest name. `nil` when there is none. Backups written
     /// before the follower list existed decode with `followers == nil`.
     public func newestValidBackup() throws -> BackupSnapshot? {
-        try newestDecodable { _ in true }
+        try newestDecodable { _ in true }?.snapshot
     }
 
-    /// The followers of the newest decodable backup that has them, in the same order as
-    /// `newestValidBackup()`. Older builds share this folder, so newer backups may lack followers.
-    public func newestValidFollowers() throws -> FollowerState? {
-        try newestDecodable { $0.followers != nil }?.followers
+    /// Restore source for the state: like `newestValidBackup()`, but skips backups whose state has
+    /// no accounts (the placeholder a pre-import backup holds before any following existed).
+    public func newestStateBackup() throws -> BackupFile? {
+        try newestDecodable { !$0.state.accounts.isEmpty }
     }
 
-    private func newestDecodable(where isWanted: (BackupSnapshot) -> Bool) throws -> BackupSnapshot? {
+    /// Restore source for the followers: the newest decodable backup that has them. Older builds
+    /// share this folder, so newer backups may lack followers.
+    public func newestFollowersBackup() throws -> BackupFile? {
+        try newestDecodable { $0.followers != nil }
+    }
+
+    private func newestDecodable(where isWanted: (BackupSnapshot) -> Bool) throws -> BackupFile? {
         guard FileManager.default.fileExists(atPath: directory.path) else { return nil }
         let decoder = StateCoding.decoder()
         for url in try backupFilesNewestFirst() {
             guard let data = try? Data(contentsOf: url),
                   let snapshot = try? decoder.decode(BackupSnapshot.self, from: data),
                   isWanted(snapshot) else { continue }
-            return snapshot
+            return BackupFile(name: url.lastPathComponent, snapshot: snapshot)
         }
         return nil
     }

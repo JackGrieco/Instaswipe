@@ -75,6 +75,7 @@ Oggi InstaSwipe ripulisce solo chi *segui*. È arrivata la richiesta di fare lo 
 - *(Mia scelta)* Aprire l'app di Instagram non consuma il budget dei profili, perché non è un caricamento fatto da InstaSwipe. Oggi infatti la lista "da togliere" non lo conta.
 - Il testo nelle Impostazioni deve dire che, per i follower, si apre l'app di Instagram.
 - In modalità Following non cambia nulla: WebView + `UnfollowBar` come oggi.
+- **Chiudi senza Fatto** (richiesta aggiunta il 2026-10-30): in modalità Following, se dalla pagina profilo aperta da "Togli subito" si esce con "Chiudi" invece di "Fatto", lo swipe si annulla. L'account torna da decidere e la sua carta ricompare subito davanti, come dopo "Annulla", perché probabilmente il follow non è stato tolto.
 
 ### Lista "da togliere" in modalità Follower
 

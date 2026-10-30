@@ -341,6 +341,30 @@ Testi e comportamento (copia esatta dove indicata):
 
 ---
 
+### Task 11: "Chiudi" senza "Fatto" annulla lo swipe (Following)
+
+Si esegue subito dopo il Task 4 (è indipendente dalle liste follower). Spec: sezione "Togli subito", punto "Chiudi senza Fatto".
+
+**Files:**
+- Modify: `InstaSwipe/Swipe/SwipeSession.swift`, `InstaSwipe/Swipe/SwipeCardScreen.swift`
+- Test: `InstaSwipeTests/SwipeSessionTests.swift`, `InstaSwipeUITests/InstantUnfollowFlowTests.swift`
+
+**Interfaces:**
+- Produces (su `SwipeSession`):
+  - `closeProfilePage()`: se la pagina era aperta per un unfollow (`unfollowUsername != nil`) e non è stato premuto "Fatto", riporta quell'account a `.pending` con `Review.decide(.pending, username:…)` (non `Review.undo`, che potrebbe colpire un altro account). Una pagina aperta solo per guardare il profilo (tap sulla carta) si chiude senza toccare nulla.
+  - `confirmUnfollowed()` continua a segnare fatto e a chiudere **senza** annullare.
+  - `private(set) var revertedUnfollowCount: Int`, incrementato a ogni annullamento. `SwipeCardScreen` lo osserva con `.onChange` e fa rientrare la carta dal lato da cui è uscita: `entryDecision = .remove`, `dragOffset = .zero` e toast `.undone`, cioè lo stesso effetto del pulsante Annulla (`undo()` nello stesso file).
+
+- [ ] **Step 1: Write the failing tests** in `SwipeSessionTests.swift`
+  - `closingInstantUnfollowPageRevertsTheSwipe`: instant acceso, `decide(.remove)` su `aa` → `unfollowUsername == "aa"`; `closeProfilePage()` → `aa.decision == .pending`, `decidedAt == nil`, `current?.username == "aa"`, `profilePageURL == nil`, `revertedUnfollowCount == 1`.
+  - `doneOnInstantUnfollowPageKeepsTheRemoval`: stesso inizio, `confirmUnfollowed()` → `aa.decision == .remove`, `unfollowedManually == true`, `revertedUnfollowCount == 0`.
+  - `closingAPlainProfilePageChangesNothing`: `requestProfilePage()` e poi `closeProfilePage()` → decisioni invariate, `revertedUnfollowCount == 0`.
+  - Nuovo UI test in `InstantUnfollowFlowTests`: `testCloseWithoutDoneBringsTheCardBack`. Stesso setup del test esistente; tap su `removeButton`, poi tap su "Chiudi" nella barra di navigazione → `cardUsername` contiene `test_01`.
+- [ ] **Step 2: Run** i test unit → FAIL.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4: Run** test unit e `InstantUnfollowFlowTests` → PASS.
+- [ ] **Step 5: Commit** `feat: closing the unfollow page without Done undoes the swipe`
+
 ### Task 10: Prova sul dispositivo
 
 - [ ] **Step 1:** Build e installazione sull'iPhone dell'utente via CLI (`xcodebuild` + `devicectl`, come da memoria del progetto). Reimport di un export reale con i follower.

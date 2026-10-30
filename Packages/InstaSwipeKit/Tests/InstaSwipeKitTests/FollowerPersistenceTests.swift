@@ -164,3 +164,37 @@ private func legacyBackupData() throws -> Data {
 
     #expect(try rotator.newestValidBackup() == snapshot)
 }
+
+/// Old builds share the Backups folder: their newer daily backups have no followers.
+@Test func newestValidFollowersSkipsNewerBackupsWithoutFollowers() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let rotator = BackupRotator(directory: root)
+    let encoder = StateCoding.encoder()
+    let withFollowers = BackupSnapshot(state: Fixtures.state([]), followers: decidedFollowers(savedAt: 10))
+    let files: [(name: String, data: Data, modified: TimeInterval)] = [
+        ("step-100.json", try encoder.encode(withFollowers), 1_700_000_000),
+        ("daily-2023-11-15.json", try encoder.encode(Fixtures.state([])), 1_700_100_000),
+        ("daily-2023-11-16.json", Data("broken".utf8), 1_700_200_000),
+    ]
+    for file in files {
+        let url = root.appendingPathComponent(file.name)
+        try file.data.write(to: url)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: file.modified)], ofItemAtPath: url.path)
+    }
+
+    #expect(try rotator.newestValidBackup()?.followers == nil)
+    #expect(try rotator.newestValidFollowers() == withFollowers.followers)
+}
+
+@Test func newestValidFollowersIsNilWithoutFollowerBackups() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let rotator = BackupRotator(directory: root)
+    #expect(try rotator.newestValidFollowers() == nil)
+
+    try rotator.backup(BackupSnapshot(state: Fixtures.state([]), followers: nil), kind: .preImport, now: Fixtures.referenceDate)
+
+    #expect(try rotator.newestValidFollowers() == nil)
+}

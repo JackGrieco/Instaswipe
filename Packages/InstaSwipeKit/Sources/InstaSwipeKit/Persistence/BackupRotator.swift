@@ -48,11 +48,22 @@ public struct BackupRotator: Sendable {
     /// modification date first, then newest name. `nil` when there is none. Backups written
     /// before the follower list existed decode with `followers == nil`.
     public func newestValidBackup() throws -> BackupSnapshot? {
+        try newestDecodable { _ in true }
+    }
+
+    /// The followers of the newest decodable backup that has them, in the same order as
+    /// `newestValidBackup()`. Older builds share this folder, so newer backups may lack followers.
+    public func newestValidFollowers() throws -> FollowerState? {
+        try newestDecodable { $0.followers != nil }?.followers
+    }
+
+    private func newestDecodable(where isWanted: (BackupSnapshot) -> Bool) throws -> BackupSnapshot? {
         guard FileManager.default.fileExists(atPath: directory.path) else { return nil }
         let decoder = StateCoding.decoder()
         for url in try backupFilesNewestFirst() {
             guard let data = try? Data(contentsOf: url),
-                  let snapshot = try? decoder.decode(BackupSnapshot.self, from: data) else { continue }
+                  let snapshot = try? decoder.decode(BackupSnapshot.self, from: data),
+                  isWanted(snapshot) else { continue }
             return snapshot
         }
         return nil

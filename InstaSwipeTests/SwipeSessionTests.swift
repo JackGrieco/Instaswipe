@@ -337,6 +337,10 @@ struct SwipeSessionTests {
         #expect(session.profilePageURL == nil)
         #expect(session.unfollowUsername == nil)
         #expect(session.revertedUnfollowCount == 1)
+        #expect(session.revertedEntryDecision == .remove)
+
+        session.consumeRevertedEntry()
+        #expect(session.revertedEntryDecision == nil)
     }
 
     @Test func doneOnInstantUnfollowPageKeepsTheRemoval() async throws {
@@ -348,6 +352,7 @@ struct SwipeSessionTests {
         #expect(account("aa", in: model)?.decision == .remove)
         #expect(account("aa", in: model)?.unfollowedManually == true)
         #expect(session.revertedUnfollowCount == 0)
+        #expect(session.revertedEntryDecision == nil)
     }
 
     @Test func closingAPlainProfilePageChangesNothing() async throws {

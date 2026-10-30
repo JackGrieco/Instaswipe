@@ -28,6 +28,9 @@ final class SwipeSession {
     private(set) var unfollowUsername: String?
     /// Bumped each time closing an unfollow page without "Fatto" puts the card back; the card screen animates it.
     private(set) var revertedUnfollowCount = 0
+    /// The side the reverted card left from. Set in the same transaction as the revert, so the card built for
+    /// the restored account already knows how to slide in; the screen clears it once the card appears.
+    private(set) var revertedEntryDecision: Decision?
     /// A view preference, not review data: kept in `UserDefaults`, outside `AppState` and its iCloud mirror.
     private(set) var scope: ReviewScope {
         didSet {
@@ -198,9 +201,14 @@ final class SwipeSession {
             let date = now()
             model.apply { Review.decide(.pending, username: username, in: $0, now: date) }
             revertedUnfollowCount += 1
+            revertedEntryDecision = .remove
             loadVisibleProfiles()
         }
         dismissProfilePage()
+    }
+
+    func consumeRevertedEntry() {
+        revertedEntryDecision = nil
     }
 
     private func dismissProfilePage() {

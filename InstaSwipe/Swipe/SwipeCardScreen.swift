@@ -88,12 +88,15 @@ struct SwipeCardScreen: View {
                     imageURL: session.imageURL(for: current.username),
                     isOffline: session.isOfflineSession,
                     dragOffset: $dragOffset,
-                    entryDecision: entryDecision,
+                    entryDecision: entryDecision ?? session.revertedEntryDecision,
                     onRelease: release,
                     onTap: session.requestProfilePage
                 )
                 .id(current.username)
-                .onAppear { entryDecision = nil }
+                .onAppear {
+                    entryDecision = nil
+                    session.consumeRevertedEntry()
+                }
             }
         }
     }
@@ -183,12 +186,9 @@ struct SwipeCardScreen: View {
         }
     }
 
-    /// Closing the unfollow page without "Fatto" put the card back: it re-enters from the left, like undo.
+    /// The unfollow page closed without "Fatto": the session already restored the card, entering from the left.
     private func cardReturned() {
-        Haptics.impact(.soft)
-        dragOffset = .zero
-        entryDecision = .remove
-        toast = .undone
+        reenterCard(from: .remove)
     }
 
     private func undo() {
@@ -197,6 +197,11 @@ struct SwipeCardScreen: View {
         let decision = session.lastDecision
         session.undo()
         guard session.current?.username != username else { return }
+        reenterCard(from: decision)
+    }
+
+    /// The restored card slides back in from the side it left, with the "undone" toast.
+    private func reenterCard(from decision: Decision?) {
         Haptics.impact(.soft)
         dragOffset = .zero
         entryDecision = decision

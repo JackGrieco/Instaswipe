@@ -268,6 +268,95 @@ struct SwipeSessionTests {
         session.isNotFollowingBackOnly = false
         #expect(!session.hasOthersToReview)
     }
+
+    // MARK: Instant unfollow
+
+    private func instantUnfollowDefaults() -> UserDefaults {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        defaults.set(true, forKey: SwipeSession.instantUnfollowDefaultsKey)
+        return defaults
+    }
+
+    @Test func instantUnfollowOpensTheRemovedProfileAndCountsTheLoad() async throws {
+        let (session, model, _) = try makeSession(defaults: instantUnfollowDefaults())
+        session.start()
+        await settle()
+        // "aa" and "bb" stay in flight, so the decision preloads nothing else.
+        let loadsBefore = model.state?.profileLoads.count ?? 0
+
+        session.decide(.remove)
+
+        #expect(session.profilePageURL == URL(string: "https://www.instagram.com/aa/"))
+        #expect(session.unfollowUsername == "aa")
+        #expect(session.current?.username == "bb")
+        #expect(model.state?.profileLoads.count == loadsBefore + 1)
+    }
+
+    @Test func instantUnfollowIgnoresKeepAndUnsure() async throws {
+        let (session, _, _) = try makeSession(defaults: instantUnfollowDefaults())
+
+        session.decide(.keep)
+        session.decide(.unsure)
+
+        #expect(session.profilePageURL == nil)
+        #expect(session.unfollowUsername == nil)
+    }
+
+    @Test func removeWithoutInstantUnfollowOpensNothing() async throws {
+        let (session, _, _) = try makeSession()
+
+        session.decide(.remove)
+
+        #expect(session.profilePageURL == nil)
+        #expect(session.unfollowUsername == nil)
+    }
+
+    @Test func confirmingTheUnfollowMarksItDoneAndCloses() async throws {
+        let (session, model, _) = try makeSession(defaults: instantUnfollowDefaults())
+        session.decide(.remove)
+
+        session.confirmUnfollowed()
+
+        #expect(account("aa", in: model)?.unfollowedManually == true)
+        #expect(account("aa", in: model)?.unfollowedAt != nil)
+        #expect(session.unfollowsToday == 1)
+        #expect(session.profilePageURL == nil)
+        #expect(session.unfollowUsername == nil)
+    }
+
+    @Test func closingWithoutConfirmingLeavesTheUnfollowToDo() async throws {
+        let (session, model, _) = try makeSession(defaults: instantUnfollowDefaults())
+        session.decide(.remove)
+
+        session.closeProfilePage()
+
+        #expect(account("aa", in: model)?.decision == .remove)
+        #expect(account("aa", in: model)?.unfollowedManually == false)
+        #expect(session.unfollowUsername == nil)
+    }
+
+    @Test func tappingTheCardIsNotAnUnfollow() async throws {
+        let (session, _, _) = try makeSession(defaults: instantUnfollowDefaults())
+
+        session.requestProfilePage()
+
+        #expect(session.profilePageURL == URL(string: "https://www.instagram.com/aa/"))
+        #expect(session.unfollowUsername == nil)
+    }
+
+    @Test func instantUnfollowStaysClosedOfflineAndAtTheLimit() async throws {
+        let (offline, _, _) = try makeSession(defaults: instantUnfollowDefaults())
+        offline.isOfflineSession = true
+        offline.decide(.remove)
+        #expect(offline.profilePageURL == nil)
+        #expect(!offline.isLimitAlertPresented)
+
+        let (limited, model, _) = try makeSession(limit: 0, defaults: instantUnfollowDefaults())
+        limited.decide(.remove)
+        #expect(limited.profilePageURL == nil)
+        #expect(limited.isLimitAlertPresented)
+        #expect(account("aa", in: model)?.decision == .remove)
+    }
 }
 
 @MainActor

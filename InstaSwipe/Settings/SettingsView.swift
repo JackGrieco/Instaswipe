@@ -7,6 +7,15 @@ struct SettingsView: View {
     @State private var isImporting = false
     @State private var isLoggingIn = false
     @State private var isShowingTutorial = false
+    @AppStorage private var isInstantUnfollowEnabled: Bool
+
+    init(model: AppModel) {
+        self.model = model
+        // Same suite `SwipeSession` reads, so UI tests stay isolated.
+        _isInstantUnfollowEnabled = AppStorage(
+            wrappedValue: false, SwipeSession.instantUnfollowDefaultsKey, store: model.environment.defaults
+        )
+    }
 
     var body: some View {
         NavigationStack {
@@ -18,6 +27,12 @@ struct SettingsView: View {
                         in: Limits.minDailyProfileLoads...Limits.maxDailyProfileLoads,
                         step: Self.dailyLimitStep
                     )
+                }
+                Section {
+                    Toggle("Togli il follow subito", isOn: $isInstantUnfollowEnabled)
+                        .accessibilityIdentifier("instantUnfollowToggle")
+                } footer: {
+                    Text("Quando scarti un account si apre il suo profilo: togli il follow e tocca Fatto. Ogni apertura conta nei profili del giorno.")
                 }
                 Section {
                     Button("Come esportare da Instagram") { isShowingTutorial = true }

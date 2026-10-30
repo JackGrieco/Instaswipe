@@ -87,6 +87,7 @@ struct FollowedAccount: Codable, Identifiable {
 - Ordine: dal follow più vecchio al più recente
 - Barra di avanzamento (es. "1.240 / 5.000")
 - Salvataggio automatico dopo ogni decisione
+- Opzione "Togli il follow subito" (Impostazioni, spenta di default): scartando un account si apre il suo profilo nella WebView; l'unfollow resta un tap dell'utente su Instagram, poi "Fatto" lo segna come fatto. Ogni apertura conta nel budget dei profili
 
 ### 3. Report unfollow
 

@@ -39,6 +39,7 @@ struct SwipeCardScreen: View {
                 .padding(.bottom, 21)
         }
         .background { feedbackTints }
+        .onChange(of: session.revertedUnfollowCount) { cardReturned() }
     }
 
     // MARK: Background feedback
@@ -180,6 +181,14 @@ struct SwipeCardScreen: View {
         case .remove, .pending:
             CGSize(width: -Self.exitDistance, height: dragOffset.height * 1.4)
         }
+    }
+
+    /// Closing the unfollow page without "Fatto" put the card back: it re-enters from the left, like undo.
+    private func cardReturned() {
+        Haptics.impact(.soft)
+        dragOffset = .zero
+        entryDecision = .remove
+        toast = .undone
     }
 
     private func undo() {

@@ -26,6 +26,8 @@ final class SwipeSession {
     private(set) var profilePageURL: URL?
     /// Set when the open profile page is there to unfollow that account, not just to look at it.
     private(set) var unfollowUsername: String?
+    /// Bumped each time closing an unfollow page without "Fatto" puts the card back; the card screen animates it.
+    private(set) var revertedUnfollowCount = 0
     /// A view preference, not review data: kept in `UserDefaults`, outside `AppState` and its iCloud mirror.
     private(set) var scope: ReviewScope {
         didSet {
@@ -187,10 +189,21 @@ final class SwipeSession {
         if let username = unfollowUsername {
             model.apply { Report.setUnfollowed(true, username: username, in: $0, now: now()) }
         }
-        closeProfilePage()
+        dismissProfilePage()
     }
 
+    /// Closing an instant-unfollow page without "Fatto" undoes that swipe; a plain profile page just closes.
     func closeProfilePage() {
+        if let username = unfollowUsername {
+            let date = now()
+            model.apply { Review.decide(.pending, username: username, in: $0, now: date) }
+            revertedUnfollowCount += 1
+            loadVisibleProfiles()
+        }
+        dismissProfilePage()
+    }
+
+    private func dismissProfilePage() {
         profilePageURL = nil
         unfollowUsername = nil
     }

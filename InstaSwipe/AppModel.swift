@@ -68,6 +68,9 @@ final class AppModel {
     /// Last started iCloud write: each write waits for it, so writes never overlap or reorder.
     private var mirrorWriteTask: Task<Result<Void, any Error>, Never>?
     private var firstUnmirroredChange: ContinuousClock.Instant?
+    /// Files saved since their last iCloud write. Only those are mirrored: a list this device did
+    /// not touch never overwrites a newer copy another device mirrored.
+    private var unmirroredFiles: Set<String> = []
     private var cloudRetryTask: Task<Void, Never>?
     private let cloudProbe: (any CloudStateProbe)?
     private(set) var cloudCheckTask: Task<Void, Never>?
@@ -184,7 +187,7 @@ final class AppModel {
         if loadedFollowers != nil { setFollowerProbePending(false) }
         setLinked(state: loaded, followers: loadedFollowers)
         if loaded != nil {
-            scheduleCloudMirror()
+            scheduleCloudMirror(of: [AppState.fileName, FollowerState.fileName])
         } else if environment.shouldSeedTestAccounts {
             seedTestAccounts()
         }
@@ -461,7 +464,11 @@ final class AppModel {
             if let saved = save(newState, in: store, at: stamp) { savedState = saved } else { isComplete = false }
         }
         if isComplete || newFollowers != nil {
-            didSave(state: savedState, followers: savedFollowers, at: stamp)
+            let savedFiles = [
+                newFollowers.map { _ in FollowerState.fileName },
+                isComplete ? newState.map { _ in AppState.fileName } : nil,
+            ].compactMap { $0 }
+            didSave(state: savedState, followers: savedFollowers, changed: Set(savedFiles), at: stamp)
         }
         return isComplete
     }
@@ -479,10 +486,12 @@ final class AppModel {
         }
     }
 
-    private func didSave(state saved: AppState?, followers savedFollowers: FollowerState?, at stamp: Date) {
+    private func didSave(
+        state saved: AppState?, followers savedFollowers: FollowerState?, changed files: Set<String>, at stamp: Date
+    ) {
         setLinked(state: saved, followers: savedFollowers)
         if let state { runBackupIfNeeded(BackupSnapshot(state: state, followers: followers), at: stamp) }
-        scheduleCloudMirror()
+        scheduleCloudMirror(of: files)
     }
 
     private func setLinked(state newState: AppState?, followers newFollowers: FollowerState?) {
@@ -508,8 +517,9 @@ final class AppModel {
     // MARK: Cloud mirror
 
     /// Debounced, but never later than `Limits.cloudMirrorMaxWait` after the first unmirrored change.
-    private func scheduleCloudMirror() {
+    private func scheduleCloudMirror(of files: Set<String>) {
         guard isCloudAvailable else { return }
+        unmirroredFiles = unmirroredFiles.union(files)
         let changedAt = ContinuousClock.now
         let firstChange = firstUnmirroredChange ?? changedAt
         firstUnmirroredChange = firstChange
@@ -533,20 +543,26 @@ final class AppModel {
     }
 
     /// Writes are chained: each waits for the previous one, so the latest state is written last.
-    /// Followers are mirrored only once they exist: an empty list never replaces the iCloud copy.
+    /// Only the files saved since the last write go (see `unmirroredFiles`); a failed write puts
+    /// them back for the next one. Followers are mirrored only once they exist: an empty list never
+    /// replaces the iCloud copy.
     private func mirrorLatestState() async {
-        guard !isBlocked, let snapshot = state else { return }
-        let followerSnapshot = followers
+        guard !isBlocked, let current = state, !unmirroredFiles.isEmpty else { return }
+        let files = unmirroredFiles
+        let stateSnapshot = files.contains(AppState.fileName) ? current : nil
+        let followerSnapshot = files.contains(FollowerState.fileName) ? followers : nil
+        unmirroredFiles = []
         firstUnmirroredChange = nil
         let previous = mirrorWriteTask
         let store = store
         let followerStore = followerStore
         let write = Task.detached(priority: .utility) {
             _ = await previous?.value
-            return Self.mirror(snapshot, followerSnapshot, store: store, followerStore: followerStore)
+            return Self.mirror(stateSnapshot, followerSnapshot, store: store, followerStore: followerStore)
         }
         mirrorWriteTask = write
         if case .failure(let error) = await write.value {
+            unmirroredFiles = unmirroredFiles.union(files)
             Self.logger.error("Cloud mirror failed: \(error.localizedDescription)")
             bannerMessage = "Copia su iCloud non riuscita: \(error.localizedDescription)"
         }
@@ -554,10 +570,10 @@ final class AppModel {
 
     /// Tries both files even when one fails; returns the first failure.
     private nonisolated static func mirror(
-        _ state: AppState, _ followers: FollowerState?, store: FileStateStore, followerStore: FollowerStore
+        _ state: AppState?, _ followers: FollowerState?, store: FileStateStore, followerStore: FollowerStore
     ) -> Result<Void, any Error> {
-        let followerResult = Result { try followers.map(followerStore.mirrorToCloud) }
-        let stateResult = Result { try store.mirrorToCloud(state) }
+        let followerResult = Result { _ = try followers.map(followerStore.mirrorToCloud) }
+        let stateResult = Result { _ = try state.map(store.mirrorToCloud) }
         if case .failure(let error) = followerResult { return .failure(error) }
         return stateResult
     }

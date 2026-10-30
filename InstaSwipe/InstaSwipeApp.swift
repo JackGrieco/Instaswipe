@@ -148,11 +148,11 @@ struct LoadErrorView: View {
 
     private var restoreTitle: String {
         guard let backup = model.pendingRestore else { return "" }
-        return "Ripristinare la copia del \(backup.savedAt.formatted(date: .abbreviated, time: .shortened))?"
+        return "Ripristinare la copia del \(backup.state.savedAt.formatted(date: .abbreviated, time: .shortened))?"
     }
 
     private var restoreMessage: String {
-        let decided = model.pendingRestore?.accounts.filter { $0.decision != .pending }.count ?? 0
+        let decided = model.pendingRestore?.state.accounts.filter { $0.decision != .pending }.count ?? 0
         return "Contiene \(decided) decisioni. Diventerà il tuo stato attuale; i file illeggibili restano da parte."
     }
 }

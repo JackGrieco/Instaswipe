@@ -31,7 +31,7 @@ final class AppModel {
     private(set) var pendingMerge: MergePreview?
     private var pendingSnapshot: ExportSnapshot?
     /// Backup chosen by `prepareRestore()`, waiting for the user's confirmation.
-    private(set) var pendingRestore: AppState?
+    private(set) var pendingRestore: BackupSnapshot?
     /// The user reached the "wait for the email" phase and has not imported since.
     private(set) var hasStartedExport: Bool
     /// Bumped by every confirmed import, so a view can react to one finishing.
@@ -197,7 +197,7 @@ final class AppModel {
         guard let backup = pendingRestore, let previousError = loadError else { return }
         pendingRestore = nil
         loadError = nil
-        if persist(backup) {
+        if persist(backup.state) {
             quarantinedFileNames = []
         } else {
             loadError = previousError
@@ -233,7 +233,7 @@ final class AppModel {
 
     private func runBackupIfNeeded(_ saved: AppState) {
         do {
-            _ = try backups.backupIfNeeded(saved, now: saved.savedAt, calendar: .current)
+            _ = try backups.backupIfNeeded(BackupSnapshot(state: saved, followers: nil), now: saved.savedAt, calendar: .current)
         } catch {
             Self.logger.error("Backup failed: \(error.localizedDescription)")
             bannerMessage = "Copia di sicurezza non riuscita: \(error.localizedDescription)"
@@ -327,7 +327,7 @@ final class AppModel {
         guard let snapshot = pendingSnapshot, !isBlocked else { return }
         if let current = state {
             do {
-                try backups.backup(current, kind: .preImport, now: now())
+                try backups.backup(BackupSnapshot(state: current, followers: nil), kind: .preImport, now: now())
             } catch {
                 Self.logger.error("Pre-import backup failed: \(error.localizedDescription)")
                 errorMessage = "Import annullato: non sono riuscito a fare la copia di sicurezza (\(error.localizedDescription))."

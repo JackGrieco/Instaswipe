@@ -1,0 +1,166 @@
+import Foundation
+import Testing
+@testable import InstaSwipeKit
+
+private func withTempDirs(_ body: (URL, URL) throws -> Void) throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try body(root.appendingPathComponent("local"), root.appendingPathComponent("cloud"))
+}
+
+private func names(_ directory: URL) -> [String] {
+    ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []).sorted()
+}
+
+/// Three followers, all decided.
+private func decidedFollowers(savedAt seconds: TimeInterval) -> FollowerState {
+    var followers = Fixtures.followers([
+        Fixtures.account("anna", since: nil, decision: .remove),
+        Fixtures.account("bruno", since: nil, decision: .keep),
+        Fixtures.account("carla", since: nil, decision: .remove, unfollowedManually: true),
+    ])
+    followers.savedAt = Date(timeIntervalSince1970: seconds)
+    followers.totalDecisionsMade = 3
+    return followers
+}
+
+private func legacyBackupData() throws -> Data {
+    let url = try #require(Bundle.module.url(forResource: "state-v1", withExtension: "json"))
+    return try Data(contentsOf: url)
+}
+
+// MARK: FollowerStore
+
+@Test func followerStoreRoundTrip() throws {
+    try withTempDirs { local, cloud in
+        let store = FollowerStore(localDirectory: local, cloudDirectory: cloud)
+        let saved = decidedFollowers(savedAt: 1_000.5)
+        try store.save(saved)
+        try store.mirrorToCloud(saved)
+        #expect(try store.load() == saved)
+        #expect(names(local) == ["followers.json"])
+        #expect(names(cloud) == ["followers.json"])
+    }
+}
+
+@Test func followerStoreQuarantinesWithOwnPrefix() throws {
+    try withTempDirs { local, _ in
+        try FileManager.default.createDirectory(at: local, withIntermediateDirectories: true)
+        try Data("{ not json".utf8).write(to: local.appendingPathComponent("followers.json"))
+        let store = FollowerStore(localDirectory: local, cloudDirectory: nil)
+        do {
+            _ = try store.load()
+            Issue.record("expected StateStoreError.corrupted")
+        } catch let StateStoreError.corrupted(quarantined) {
+            #expect(quarantined.count == 1)
+            #expect(quarantined.allSatisfy { $0.lastPathComponent.hasPrefix("followers.corrupt-") })
+        }
+        let files = names(local)
+        #expect(files.count == 1)
+        #expect(files.allSatisfy { $0.hasPrefix("followers.corrupt-") && $0.hasSuffix(".json") })
+        #expect(!files.contains { $0.hasPrefix("state.corrupt-") })
+    }
+}
+
+@Test func followerStoreAbsentGivesNil() throws {
+    try withTempDirs { local, cloud in
+        let loaded = try FollowerStore(localDirectory: local, cloudDirectory: cloud).load()
+        #expect(loaded == nil)
+    }
+}
+
+@Test func storesIgnoreEachOthersFiles() throws {
+    try withTempDirs { local, cloud in
+        try FollowerStore(localDirectory: local, cloudDirectory: cloud).save(decidedFollowers(savedAt: 5))
+        #expect(try FileStateStore(localDirectory: local, cloudDirectory: cloud).load() == nil)
+        try FileManager.default.createDirectory(at: cloud, withIntermediateDirectories: true)
+        try Data("placeholder".utf8).write(to: cloud.appendingPathComponent(".state.json.icloud"))
+        #expect(try FollowerStore(localDirectory: local, cloudDirectory: cloud).load() == decidedFollowers(savedAt: 5))
+    }
+}
+
+@Test func oldBuildStateSaveLeavesFollowersIntact() throws {
+    try withTempDirs { local, cloud in
+        let followerStore = FollowerStore(localDirectory: local, cloudDirectory: cloud)
+        try followerStore.save(decidedFollowers(savedAt: 100))
+        try followerStore.mirrorToCloud(decidedFollowers(savedAt: 100))
+
+        // An older build only knows AppState: it writes a newer state.json in both places.
+        var oldBuildState = Fixtures.state([Fixtures.account("dario", since: nil, decision: .keep)])
+        oldBuildState.savedAt = Date(timeIntervalSince1970: 500)
+        let data = try StateCoding.encoder().encode(oldBuildState)
+        for directory in [local, cloud] {
+            try data.write(to: directory.appendingPathComponent("state.json"), options: .atomic)
+        }
+
+        let reloadedState = try FileStateStore(localDirectory: local, cloudDirectory: cloud).load()
+        let reloadedFollowers = try FollowerStore(localDirectory: local, cloudDirectory: cloud).load()
+        #expect(reloadedState == oldBuildState)
+        #expect(reloadedFollowers == decidedFollowers(savedAt: 100))
+        #expect(reloadedFollowers?.accounts.filter { $0.decision != .pending }.count == 3)
+    }
+}
+
+// MARK: BackupSnapshot
+
+@Test func backupSnapshotDecodesLegacyBackup() throws {
+    let data = try legacyBackupData()
+    let snapshot = try StateCoding.decoder().decode(BackupSnapshot.self, from: data)
+    #expect(snapshot.followers == nil)
+    #expect(snapshot.state == (try StateCoding.decoder().decode(AppState.self, from: data)))
+}
+
+@Test func backupSnapshotIsReadableAsAppState() throws {
+    let snapshot = BackupSnapshot(state: Fixtures.state([Fixtures.account("a", since: nil)]),
+                                  followers: decidedFollowers(savedAt: 10))
+    let data = try StateCoding.encoder().encode(snapshot)
+    #expect(try StateCoding.decoder().decode(AppState.self, from: data) == snapshot.state)
+}
+
+@Test func backupSnapshotRoundTripsBothLists() throws {
+    let snapshot = BackupSnapshot(state: Fixtures.state([Fixtures.account("a", since: nil)]),
+                                  followers: decidedFollowers(savedAt: 10))
+    let data = try StateCoding.encoder().encode(snapshot)
+    #expect(try StateCoding.decoder().decode(BackupSnapshot.self, from: data) == snapshot)
+}
+
+@Test func backupSnapshotWithoutFollowersEncodesExactlyLikeAppState() throws {
+    let state = Fixtures.state([Fixtures.account("a", since: nil)])
+    let snapshotData = try StateCoding.encoder().encode(BackupSnapshot(state: state, followers: nil))
+    #expect(snapshotData == (try StateCoding.encoder().encode(state)))
+}
+
+@Test func backupSnapshotWithCorruptFollowersDoesNotDecode() throws {
+    var object = try #require(JSONSerialization.jsonObject(with: try legacyBackupData()) as? [String: Any])
+    object["followers"] = ["accounts": "broken"]
+    let data = try JSONSerialization.data(withJSONObject: object)
+    #expect(throws: DecodingError.self) { try StateCoding.decoder().decode(BackupSnapshot.self, from: data) }
+}
+
+// MARK: BackupRotator with both lists
+
+@Test func stepBackupCountsBothLists() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    var state = Fixtures.state([])
+    state.totalDecisionsMade = 60
+    var followers = Fixtures.followers([])
+    followers.totalDecisionsMade = 40
+
+    let written = try BackupRotator(directory: root)
+        .backupIfNeeded(BackupSnapshot(state: state, followers: followers), now: Fixtures.referenceDate, calendar: .current)
+
+    #expect(written.contains { if case .step(100) = $0 { true } else { false } })
+    #expect(names(root).contains("step-100.json"))
+}
+
+@Test func newestValidBackupReturnsFollowersToo() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let rotator = BackupRotator(directory: root)
+    let snapshot = BackupSnapshot(state: Fixtures.state([]), followers: decidedFollowers(savedAt: 10))
+
+    try rotator.backup(snapshot, kind: .preImport, now: Fixtures.referenceDate)
+
+    #expect(try rotator.newestValidBackup() == snapshot)
+}

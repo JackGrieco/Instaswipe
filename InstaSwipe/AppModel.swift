@@ -18,8 +18,12 @@ final class AppModel {
     private static let cloudRetryInterval: Duration = .seconds(2)
     private static let listModeKey = "listMode"
     /// Set while iCloud may still hold a followers.json this device has not seen: survives a
-    /// relaunch during the wait and a probe timeout, cleared by a definite answer.
+    /// relaunch during the wait and a probe timeout, cleared by a definite answer or after
+    /// `maxUnknownFollowerProbes` unanswered probes in a row.
     private static let followerProbePendingKey = "followerCloudProbePending"
+    private static let followerProbeUnknownCountKey = "followerCloudProbeUnknownCount"
+    /// A user whose iCloud never answers stops waiting on every launch after this many.
+    private static let maxUnknownFollowerProbes = 3
 
     /// Always `Linking.linked` with `followers`, so "ti segue" never trusts a stale state.json.
     private(set) var state: AppState?
@@ -199,8 +203,27 @@ final class AppModel {
         environment.defaults.bool(forKey: Self.followerProbePendingKey)
     }
 
+    /// Any change of the flag starts the count of unanswered probes again.
     private func setFollowerProbePending(_ isPending: Bool) {
         environment.defaults.set(isPending, forKey: Self.followerProbePendingKey)
+        environment.defaults.set(0, forKey: Self.followerProbeUnknownCountKey)
+    }
+
+    /// Updates the flag from a probe answer about followers.json.
+    private func recordFollowerProbeAnswer(_ answer: CloudProbeAnswer) {
+        switch answer {
+        case .found:
+            environment.defaults.set(0, forKey: Self.followerProbeUnknownCountKey)
+        case .absent:
+            setFollowerProbePending(false)
+        case .unknown:
+            let unknownCount = environment.defaults.integer(forKey: Self.followerProbeUnknownCountKey) + 1
+            if unknownCount >= Self.maxUnknownFollowerProbes {
+                setFollowerProbePending(false)
+            } else {
+                environment.defaults.set(unknownCount, forKey: Self.followerProbeUnknownCountKey)
+            }
+        }
     }
 
     /// With iCloud on and a file not found, the iCloud copy may simply not be visible yet: ask the
@@ -214,7 +237,7 @@ final class AppModel {
         }
         guard isCloudAvailable, !checkedCloudFiles.contains(fileName), let cloudProbe else { return false }
         checkedCloudFiles = checkedCloudFiles.union([fileName])
-        if fileName == FollowerState.fileName { setFollowerProbePending(true) }
+        if fileName == FollowerState.fileName, !isFollowerProbePending { setFollowerProbePending(true) }
         isCheckingCloud = true
         cloudCheckTask = Task { [weak self] in
             let answer = await cloudProbe.cloudFile(named: fileName)
@@ -223,23 +246,43 @@ final class AppModel {
         return true
     }
 
-    /// `.unknown` loads like `.absent` for now, but leaves the follower flag set for the next launch.
+    /// `.unknown` loads like `.absent` for now, but leaves the follower flag set for the next
+    /// launch (see `recordFollowerProbeAnswer`).
     private func cloudCheckFinished(fileName: String, answer: CloudProbeAnswer) {
         Self.logger.info("iCloud probe for \(fileName, privacy: .public): \(String(describing: answer), privacy: .public)")
         isCheckingCloud = false
-        switch answer {
-        case .found: expectedCloudFiles = expectedCloudFiles.union([fileName])
-        case .absent where fileName == FollowerState.fileName: setFollowerProbePending(false)
-        case .absent, .unknown: break
-        }
+        if answer == .found { expectedCloudFiles = expectedCloudFiles.union([fileName]) }
+        if fileName == FollowerState.fileName { recordFollowerProbeAnswer(answer) }
         attemptLoad()
+    }
+
+    /// Before an import builds a follower list from nothing: this device does not reload while
+    /// running, so another device may have mirrored one to iCloud since launch. A readable one is
+    /// adopted (linked) so the import merges into it instead of overwriting it. Returns false when
+    /// the import must stop: the copy is still downloading, or unreadable (then the app blocks
+    /// exactly as after a failed load).
+    func adoptCloudFollowersBeforeImport() -> Bool {
+        guard followers == nil, isCloudAvailable, !isBlocked else { return true }
+        do {
+            if let loaded = try followerStore.load() {
+                setFollowerProbePending(false)
+                setLinked(state: state, followers: loaded)
+            }
+            return true
+        } catch StateStoreError.cloudNotDownloaded {
+            errorMessage = "I follower stanno arrivando da iCloud, riprova tra poco."
+            return false
+        } catch {
+            loadFailed([error])
+            return false
+        }
     }
 
     // MARK: Restore
 
     private enum FileCondition { case readable, missing, quarantined }
 
-    /// Plans the restore of the unreadable lists only and asks for confirmation (see `pendingRestore`).
+    /// Plans the restore of the quarantined lists only and asks for confirmation (see `pendingRestore`).
     func prepareRestore() {
         do {
             guard let plan = try makeRestorePlan() else {
@@ -260,20 +303,22 @@ final class AppModel {
         }
     }
 
-    /// A readable file is never replaced. An unreadable state comes from the newest readable backup
-    /// with accounts; unreadable followers from the newest backup holding followers (older builds
-    /// share the folder and may own the newest daily names), or are set aside when none does.
+    /// Only a quarantined file is replaced: a readable one never, and a missing one neither, since
+    /// iCloud may simply not have listed it yet (a backup stamped now would beat the real copy).
+    /// A quarantined state comes from the newest readable backup with accounts; quarantined
+    /// followers from the newest backup holding followers (older builds share the folder and may
+    /// own the newest daily names), or are set aside when none does.
     /// Nil when state.json was quarantined and no backup can replace it.
     private func makeRestorePlan() throws -> RestorePlan? {
         let stateCondition = try Self.condition(of: store.load)
         let followerCondition = try Self.condition(of: followerStore.load)
-        let stateSource = try stateCondition == .readable ? nil : backups.newestStateBackup()
+        let stateSource = try stateCondition == .quarantined ? backups.newestStateBackup() : nil
         if stateCondition == .quarantined, stateSource == nil { return nil }
-        let followerSource = try followerCondition == .readable ? nil : backups.newestFollowersBackup()
+        let followerSource = try followerCondition == .quarantined ? backups.newestFollowersBackup() : nil
         let isFromTwoBackups = stateSource != nil && followerSource != nil && stateSource?.name != followerSource?.name
         return RestorePlan(
-            state: stateSource?.snapshot.state,
-            followers: followerSource?.snapshot.followers,
+            state: stateSource?.content,
+            followers: followerSource?.content,
             discardsFollowers: followerCondition == .quarantined && followerSource == nil,
             isFromTwoBackups: isFromTwoBackups
         )
@@ -358,12 +403,14 @@ final class AppModel {
         }
     }
 
-    /// For what belongs to the profile rather than the list (availability, display name).
+    /// For what belongs to the profile rather than the list (availability, display name). Saves only
+    /// the lists `transform` changes: an untouched file keeps its bytes and `savedAt`, so it never
+    /// wins over a newer copy another device mirrored to iCloud.
     func applyToBothLists(_ transform: (AccountList) -> AccountList) {
         guard !isBlocked else { return }
         persist(
-            state: state.map { Self.replacingList(of: $0, with: transform) },
-            followers: followers.map { Self.replacingList(of: $0, with: transform) }
+            state: state.flatMap { Self.changedList(of: $0, by: transform) },
+            followers: followers.flatMap { Self.changedList(of: $0, by: transform) }
         )
     }
 
@@ -377,6 +424,17 @@ final class AppModel {
     ) -> Document {
         var next = document
         next.list = transform(document.list)
+        return next
+    }
+
+    /// Nil when `transform` leaves the list as it is.
+    private static func changedList<Document: ReviewList>(
+        of document: Document, by transform: (AccountList) -> AccountList
+    ) -> Document? {
+        let changed = transform(document.list)
+        guard changed != document.list else { return nil }
+        var next = document
+        next.list = changed
         return next
     }
 

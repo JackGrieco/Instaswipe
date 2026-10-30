@@ -240,8 +240,27 @@ private func legacyBackupData() throws -> Data {
 
     #expect(try rotator.newestValidBackup()?.followers == nil)
     let source = try #require(try rotator.newestFollowersBackup())
-    #expect(source.snapshot.followers == withFollowers.followers)
+    #expect(source.content == withFollowers.followers)
     #expect(source.name == "step-100.json")
+}
+
+/// A backup whose followers key no longer decodes still restores the state; only the
+/// followers source skips it.
+@Test func unreadableFollowersKeyStillLeavesTheStateRestorable() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let state = Fixtures.state([Fixtures.account("aa", since: nil)])
+    var json = try #require(try JSONSerialization.jsonObject(with: StateCoding.encoder().encode(state)) as? [String: Any])
+    json["followers"] = ["accounts": "garbage"]
+    try JSONSerialization.data(withJSONObject: json).write(to: root.appendingPathComponent("daily-2023-11-14.json"))
+    let rotator = BackupRotator(directory: root)
+
+    let source = try #require(try rotator.newestStateBackup())
+
+    #expect(source.name == "daily-2023-11-14.json")
+    #expect(source.content.accounts.map(\.username) == ["aa"])
+    #expect(try rotator.newestFollowersBackup() == nil)
 }
 
 @Test func newestFollowersBackupIsNilWithoutFollowerBackups() throws {

@@ -237,6 +237,30 @@ struct AppModelFollowersTests {
         #expect(savedState?.accounts.first { $0.username == "aa" }?.availability == .unavailable)
     }
 
+    /// A profile in one list only: the other file is not rewritten nor re-stamped, so a second
+    /// device never mirrors an untouched list over a newer iCloud copy.
+    @Test func applyToBothListsLeavesTheUntouchedListAlone() async throws {
+        let (model, local) = try await importedModel()
+        let followersFile = local.appendingPathComponent("followers.json")
+        let stateFile = local.appendingPathComponent("state.json")
+        let followersBefore = try Data(contentsOf: followersFile)
+        let followersSavedAt = try #require(model.followers?.savedAt)
+
+        model.applyToBothLists { Review.markAvailability(.unavailable, displayName: nil, username: "bb", in: $0) }
+
+        #expect(model.state?.accounts.first { $0.username == "bb" }?.availability == .unavailable)
+        #expect(try Data(contentsOf: followersFile) == followersBefore)
+        #expect(model.followers?.savedAt == followersSavedAt)
+
+        let stateBefore = try Data(contentsOf: stateFile)
+        let stateSavedAt = try #require(model.state?.savedAt)
+        model.applyToBothLists { Review.markAvailability(.unavailable, displayName: nil, username: "cc", in: $0) }
+
+        #expect(model.followers?.accounts.first { $0.username == "cc" }?.availability == .unavailable)
+        #expect(try Data(contentsOf: stateFile) == stateBefore)
+        #expect(model.state?.savedAt == stateSavedAt)
+    }
+
     @Test func actionsTodaySumsBothLists() async throws {
         let (model, _) = try await importedModel()
         let today = Date()
@@ -485,6 +509,60 @@ struct AppModelFollowersTests {
         #expect(model.pendingRestore?.followers?.accounts == placeholderFollowers.accounts)
     }
 
+    /// A missing file may only be not yet listed by iCloud: a restore never fills it from a backup
+    /// (stamped now, it would beat the real iCloud copy). Only quarantined files are restored.
+    @Test func restoreLeavesMissingFollowersAlone() throws {
+        let local = try TestSupport.makeDirectory()
+        try corrupt("state.json", in: local)
+        let backedUp = followers([account("ff", decision: .remove)], decisions: 1)
+        try writeSnapshot(BackupSnapshot(state: state([account("aa")]), followers: backedUp), named: "step-100.json", in: local, modified: 1_700_000_000)
+        let model = AppModel(environment: TestSupport.environment(local: local))
+
+        model.prepareRestore()
+        #expect(model.pendingRestore?.state?.accounts.map(\.username) == ["aa"])
+        #expect(model.pendingRestore?.followers == nil)
+        #expect(model.pendingRestore?.discardsFollowers == false)
+        model.confirmRestore()
+
+        #expect(model.loadError == nil)
+        #expect(model.followers == nil)
+        #expect(!FileManager.default.fileExists(atPath: local.appendingPathComponent("followers.json").path))
+    }
+
+    @Test func restoreLeavesMissingStateAlone() throws {
+        let local = try TestSupport.makeDirectory()
+        try corrupt("followers.json", in: local)
+        let backedUp = followers([account("ff", decision: .remove)], decisions: 1)
+        try writeSnapshot(BackupSnapshot(state: state([account("aa")]), followers: backedUp), named: "step-100.json", in: local, modified: 1_700_000_000)
+        let model = AppModel(environment: TestSupport.environment(local: local))
+        #expect(model.loadError != nil)
+
+        model.prepareRestore()
+        #expect(model.pendingRestore?.state == nil)
+        #expect(model.pendingRestore?.followers?.accounts == backedUp.accounts)
+        model.confirmRestore()
+
+        #expect(model.loadError == nil)
+        #expect(model.state == nil)
+        #expect(model.followers?.accounts == backedUp.accounts)
+        #expect(!FileManager.default.fileExists(atPath: local.appendingPathComponent("state.json").path))
+    }
+
+    /// The followers key of the newest backup no longer decodes: its state is still the one restored.
+    @Test func restoreUsesTheStateOfABackupWithUnreadableFollowers() throws {
+        let local = try TestSupport.makeDirectory()
+        try corrupt("state.json", in: local)
+        var json = try #require(try JSONSerialization.jsonObject(with: StateCoding.encoder().encode(state([account("new")]))) as? [String: Any])
+        json["followers"] = ["accounts": "garbage"]
+        try writeBackup(try JSONSerialization.data(withJSONObject: json), named: "daily-2023-11-15.json", in: backupsFolder(local), modified: 1_700_100_000)
+        try writeSnapshot(BackupSnapshot(state: state([account("old")]), followers: nil), named: "daily-2023-11-14.json", in: local, modified: 1_700_000_000)
+        let model = AppModel(environment: TestSupport.environment(local: local))
+
+        model.prepareRestore()
+
+        #expect(model.pendingRestore?.state?.accounts.map(\.username) == ["new"])
+    }
+
     @Test func confirmRestoreAbortsWhenTheBackupsChangedSinceTheDialog() throws {
         let local = try TestSupport.makeDirectory()
         try corrupt("state.json", in: local)
@@ -528,6 +606,123 @@ struct AppModelFollowersTests {
         #expect(followersOnly.message.contains("I following restano come sono."))
         #expect(discardOnly.title == "Mettere da parte i follower illeggibili?")
         #expect(discardOnly.message.contains("reimporta"))
+    }
+
+    // MARK: Followers saved by another device while this one runs
+
+    /// This device has its own state.json and no followers.json, so it never looked in iCloud for
+    /// one; another device then mirrored its follower list there.
+    private func modelWithCloudFollowersArrivingLater() throws -> (model: AppModel, local: URL, cloud: URL) {
+        let local = try TestSupport.makeDirectory()
+        let cloud = try TestSupport.makeDirectory()
+        try seed(local, state: state([account("aa", followsMe: true), account("bb")]))
+        let model = AppModel(environment: TestSupport.environment(local: local, cloud: cloud))
+        #expect(model.rootScreen == .main)
+        #expect(model.followers == nil)
+        return (model, local, cloud)
+    }
+
+    private func cloudFollowers(_ cloud: URL) throws -> FollowerState? {
+        let url = cloud.appendingPathComponent("followers.json")
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return try StateCoding.decoder().decode(FollowerState.self, from: Data(contentsOf: url))
+    }
+
+    @Test func importMergesIntoFollowersAnotherDeviceSavedToICloud() async throws {
+        let (model, local, cloud) = try modelWithCloudFollowersArrivingLater()
+        let removedAt = Date()
+        var removed = account("aa", decision: .remove)
+        removed.decidedAt = removedAt
+        removed.unfollowedManually = true
+        removed.unfollowedAt = removedAt
+        let other = followers([removed, account("cc", decision: .keep)], decisions: 2)
+        try StateCoding.encoder().encode(other).write(to: cloud.appendingPathComponent("followers.json"))
+
+        await model.prepareImport(picked: [try TestSupport.makeExport(["aa", "bb"], followers: ["aa", "cc", "dd"])])
+
+        #expect(model.pendingFollowerMerge?.summary.newAccounts == 1)
+        #expect(model.followers?.accounts.map(\.username) == ["aa", "cc"])
+        #expect(model.state?.accounts.first { $0.username == "aa" }?.followsMe == false)
+
+        model.confirmImport()
+
+        let decisions = Dictionary(uniqueKeysWithValues: (model.followers?.accounts ?? []).map { ($0.username, $0.decision) })
+        #expect(decisions == ["aa": .remove, "cc": .keep, "dd": .pending])
+        #expect(model.followers?.totalDecisionsMade == 2)
+        #expect(try loadFollowers(local)?.accounts.first { $0.username == "cc" }?.decision == .keep)
+        #expect(model.state?.accounts.first { $0.username == "aa" }?.followsMe == false)
+    }
+
+    /// The list was adopted by an earlier prepare; confirm alone must also look, in case it was not.
+    @Test func confirmImportAlsoAdoptsCloudFollowers() async throws {
+        let (model, _, cloud) = try modelWithCloudFollowersArrivingLater()
+        await model.prepareImport(picked: [try TestSupport.makeExport(["aa", "bb"], followers: ["aa", "cc"])])
+        try StateCoding.encoder().encode(followers([account("cc", decision: .keep)], decisions: 1))
+            .write(to: cloud.appendingPathComponent("followers.json"))
+
+        model.confirmImport()
+
+        #expect(model.followers?.accounts.first { $0.username == "cc" }?.decision == .keep)
+        #expect(model.followers?.totalDecisionsMade == 1)
+    }
+
+    @Test func importWaitsWhileCloudFollowersDownload() async throws {
+        let (model, local, cloud) = try modelWithCloudFollowersArrivingLater()
+        try Data("placeholder".utf8).write(to: cloud.appendingPathComponent(".followers.json.icloud"))
+
+        await model.prepareImport(picked: [try TestSupport.makeExport(["aa", "bb"], followers: ["aa", "cc"])])
+
+        #expect(model.errorMessage == "I follower stanno arrivando da iCloud, riprova tra poco.")
+        #expect(model.pendingMerge == nil)
+        #expect(model.pendingFollowerMerge == nil)
+        #expect(model.loadError == nil)
+        #expect(!FileManager.default.fileExists(atPath: local.appendingPathComponent("followers.json").path))
+    }
+
+    @Test func confirmImportWaitsWhileCloudFollowersDownload() async throws {
+        let (model, local, cloud) = try modelWithCloudFollowersArrivingLater()
+        await model.prepareImport(picked: [try TestSupport.makeExport(["aa", "bb"], followers: ["aa", "cc"])])
+        let stateBefore = try fileData("state.json", in: local)
+        try Data("placeholder".utf8).write(to: cloud.appendingPathComponent(".followers.json.icloud"))
+
+        model.confirmImport()
+
+        #expect(model.errorMessage == "I follower stanno arrivando da iCloud, riprova tra poco.")
+        #expect(model.followers == nil)
+        #expect(model.pendingMerge != nil)
+        #expect(try fileData("state.json", in: local) == stateBefore)
+        #expect(!FileManager.default.fileExists(atPath: local.appendingPathComponent("followers.json").path))
+        #expect(try cloudFollowers(cloud) == nil)
+    }
+
+    @Test func importBlocksLikeALoadFailureWhenCloudFollowersAreUnreadable() async throws {
+        let (model, local, cloud) = try modelWithCloudFollowersArrivingLater()
+        try Data("not json".utf8).write(to: cloud.appendingPathComponent("followers.json"))
+        let stateBefore = try fileData("state.json", in: local)
+
+        await model.prepareImport(picked: [try TestSupport.makeExport(["aa", "bb"], followers: ["aa", "cc"])])
+        model.confirmImport()
+
+        #expect(model.loadError != nil)
+        #expect(model.isBlocked)
+        #expect(model.quarantinedFileNames.contains { $0.hasPrefix("followers.corrupt-") })
+        #expect(model.pendingMerge == nil)
+        #expect(model.followers == nil)
+        #expect(try fileData("state.json", in: local) == stateBefore)
+        #expect(!FileManager.default.fileExists(atPath: local.appendingPathComponent("followers.json").path))
+    }
+
+    @Test func confirmImportBlocksWhenCloudFollowersBecameUnreadable() async throws {
+        let (model, local, cloud) = try modelWithCloudFollowersArrivingLater()
+        await model.prepareImport(picked: [try TestSupport.makeExport(["aa", "bb"], followers: ["aa", "cc"])])
+        try Data("not json".utf8).write(to: cloud.appendingPathComponent("followers.json"))
+
+        model.confirmImport()
+
+        #expect(model.loadError != nil)
+        #expect(model.quarantinedFileNames.contains { $0.hasPrefix("followers.corrupt-") })
+        #expect(model.followers == nil)
+        #expect(!FileManager.default.fileExists(atPath: local.appendingPathComponent("followers.json").path))
     }
 
     // MARK: UI-test seed

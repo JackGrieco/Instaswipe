@@ -190,7 +190,7 @@ private func setModified(_ name: String, in directory: URL, _ date: Date) throws
         let followers = try #require(try rotator.newestFollowersBackup())
 
         #expect(state.name == "daily-2023-11-14.json")
-        #expect(state.snapshot.state.accounts.map(\.username) == ["aa"])
+        #expect(state.content.accounts.map(\.username) == ["aa"])
         #expect(followers.name == "preimport-20231115-000000.json")
         #expect(try rotator.newestValidBackup()?.state.accounts.isEmpty == true)
     }

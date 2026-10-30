@@ -17,6 +17,11 @@ extension AppModel {
             clearPendingImport()
             errorMessage = "L'export non contiene account seguiti."
         case .success(let snapshot):
+            // The preview must merge into a follower list another device may have saved to iCloud.
+            guard snapshot.followers == nil || adoptCloudFollowersBeforeImport() else {
+                clearPendingImport()
+                return
+            }
             let date = now()
             pendingSnapshot = snapshot
             pendingMerge = MergeEngine.preview(current: state, snapshot: snapshot, now: date)
@@ -38,8 +43,16 @@ extension AppModel {
 
     /// Re-merges the picked snapshot into the CURRENT lists, so decisions made after the
     /// preview was computed are never overwritten. Without followers files the follower list stays as is.
+    /// With them, a follower list another device saved to iCloud is the base (see
+    /// `adoptCloudFollowersBeforeImport`).
     func confirmImport() {
         guard let snapshot = pendingSnapshot, !isBlocked else { return }
+        if snapshot.followers != nil, !adoptCloudFollowersBeforeImport() {
+            // Unreadable: blocked like a failed load, so the preview goes. Downloading: it stays
+            // up, so the error alert shows inside the sheet and "Importa" can be tried again.
+            if isBlocked { clearPendingImport() }
+            return
+        }
         if state != nil || followers != nil {
             let current = BackupSnapshot(state: state ?? AppState.empty(now: now()), followers: followers)
             do {

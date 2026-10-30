@@ -6,15 +6,15 @@ public enum BackupKind: Sendable {
     case preImport
 }
 
-/// A decoded backup and the file it came from: two restore sources are the same backup when
-/// their names match.
-public struct BackupFile: Sendable, Equatable {
+/// What a restore takes from one backup file (its state or its followers) and the file's name:
+/// two restore sources are the same backup when their names match.
+public struct BackupFile<Content: Sendable & Equatable>: Sendable, Equatable {
     public let name: String
-    public let snapshot: BackupSnapshot
+    public let content: Content
 
-    public init(name: String, snapshot: BackupSnapshot) {
+    public init(name: String, content: Content) {
         self.name = name
-        self.snapshot = snapshot
+        self.content = content
     }
 }
 
@@ -60,29 +60,33 @@ public struct BackupRotator: Sendable {
     /// modification date first, then newest name. `nil` when there is none. Backups written
     /// before the follower list existed decode with `followers == nil`.
     public func newestValidBackup() throws -> BackupSnapshot? {
-        try newestDecodable { _ in true }?.snapshot
+        try newestDecodable(BackupSnapshot.self) { $0 }?.content
     }
 
-    /// Restore source for the state: like `newestValidBackup()`, but skips backups whose state has
-    /// no accounts (the placeholder a pre-import backup holds before any following existed).
-    public func newestStateBackup() throws -> BackupFile? {
-        try newestDecodable { !$0.state.accounts.isEmpty }
+    /// Restore source for the state: the newest backup whose state decodes and has accounts (a
+    /// pre-import backup holds an empty placeholder before any following existed). The state is
+    /// decoded on its own, so an unreadable `followers` key never hides a good state.
+    public func newestStateBackup() throws -> BackupFile<AppState>? {
+        try newestDecodable(AppState.self) { $0.accounts.isEmpty ? nil : $0 }
     }
 
-    /// Restore source for the followers: the newest decodable backup that has them. Older builds
+    /// Restore source for the followers: the newest backup whose followers decode. Older builds
     /// share this folder, so newer backups may lack followers.
-    public func newestFollowersBackup() throws -> BackupFile? {
-        try newestDecodable { $0.followers != nil }
+    public func newestFollowersBackup() throws -> BackupFile<FollowerState>? {
+        try newestDecodable(BackupSnapshot.self) { $0.followers }
     }
 
-    private func newestDecodable(where isWanted: (BackupSnapshot) -> Bool) throws -> BackupFile? {
+    /// Newest first, the first file that decodes as `Decoded` and for which `extract` returns content.
+    private func newestDecodable<Decoded: Decodable, Content>(
+        _ type: Decoded.Type, extract: (Decoded) -> Content?
+    ) throws -> BackupFile<Content>? {
         guard FileManager.default.fileExists(atPath: directory.path) else { return nil }
         let decoder = StateCoding.decoder()
         for url in try backupFilesNewestFirst() {
             guard let data = try? Data(contentsOf: url),
-                  let snapshot = try? decoder.decode(BackupSnapshot.self, from: data),
-                  isWanted(snapshot) else { continue }
-            return BackupFile(name: url.lastPathComponent, snapshot: snapshot)
+                  let decoded = try? decoder.decode(type, from: data),
+                  let content = extract(decoded) else { continue }
+            return BackupFile(name: url.lastPathComponent, content: content)
         }
         return nil
     }

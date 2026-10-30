@@ -161,6 +161,46 @@ struct CloudStateProbeTests {
         #expect(!isFollowerProbePending(environment))
     }
 
+    /// iCloud that never answers must not cost a wait on every launch forever.
+    @Test func threeUnknownAnswersInARowStopTheProbe() async throws {
+        let timingOut = { FakeCloudStateProbe(existing: [], timingOut: ["followers.json"]) }
+        let (first, environment) = try freshInstall(probe: timingOut())
+        await first.cloudCheckTask?.value
+        let second = AppModel(environment: environment, cloudProbe: timingOut())
+        await second.cloudCheckTask?.value
+        #expect(isFollowerProbePending(environment))
+        let third = AppModel(environment: environment, cloudProbe: timingOut())
+        await third.cloudCheckTask?.value
+        #expect(!isFollowerProbePending(environment))
+        let probe = FakeCloudStateProbe(existing: ["followers.json"])
+
+        let fourth = AppModel(environment: environment, cloudProbe: probe)
+
+        #expect(probe.calls.isEmpty)
+        #expect(fourth.rootScreen == .main)
+    }
+
+    /// Only consecutive unknowns count: a definite answer in between starts the count again.
+    @Test func aDefiniteAnswerResetsTheUnknownCount() async throws {
+        let timingOut = { FakeCloudStateProbe(existing: [], timingOut: ["followers.json"]) }
+        let (first, environment) = try freshInstall(probe: timingOut())
+        await first.cloudCheckTask?.value
+        let second = AppModel(environment: environment, cloudProbe: timingOut())
+        await second.cloudCheckTask?.value
+        // iCloud lists the file; the app is closed before it downloads.
+        let finding = AppModel(environment: environment, cloudProbe: FakeCloudStateProbe(existing: ["followers.json"]))
+        await finding.cloudCheckTask?.value
+        #expect(finding.rootScreen == .waitingForCloud)
+
+        let afterFound = AppModel(environment: environment, cloudProbe: timingOut())
+        await afterFound.cloudCheckTask?.value
+        #expect(isFollowerProbePending(environment))
+        let again = AppModel(environment: environment, cloudProbe: timingOut())
+        await again.cloudCheckTask?.value
+
+        #expect(isFollowerProbePending(environment))
+    }
+
     @Test func definiteAbsenceStopsTheProbeOnLaterLaunches() async throws {
         let (first, environment) = try freshInstall(probe: FakeCloudStateProbe(existing: []))
         await first.cloudCheckTask?.value

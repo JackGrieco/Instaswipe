@@ -9,13 +9,19 @@ struct ReportSessionTests {
     private let fixedNow = Date(timeIntervalSince1970: 1_800_000_000)
 
     private func makeSession(
-        accounts: [FollowedAccount]? = nil
+        accounts: [FollowedAccount]? = nil,
+        followers: [FollowedAccount]? = nil
     ) throws -> (ReportSession, AppModel) {
         let local = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: local, withIntermediateDirectories: true)
         var state = AppState.empty(now: fixedNow)
         state.accounts = accounts ?? defaultAccounts()
         try FileStateStore(localDirectory: local, cloudDirectory: nil).save(state)
+        if let followers {
+            var followerState = FollowerState.empty(now: fixedNow)
+            followerState.accounts = followers
+            try FollowerStore(localDirectory: local, cloudDirectory: nil).save(followerState)
+        }
         let environment = AppEnvironment(
             localDirectory: local, cloudDirectory: nil, isUITesting: true,
             useFakeProfiles: true, shouldSeedTestAccounts: false,
@@ -82,15 +88,15 @@ struct ReportSessionTests {
 
     @Test func tickAndUntickUpdateTodayCounter() throws {
         let (session, model) = try makeSession()
-        #expect(session.counterText == "Oggi: 1 unfollow segnati")
+        #expect(session.counterText == "Oggi: 1 azioni segnate")
 
         session.setUnfollowed(true, username: "aa")
-        #expect(session.counterText == "Oggi: 2 unfollow segnati")
+        #expect(session.counterText == "Oggi: 2 azioni segnate")
         #expect(account("aa", in: model)?.unfollowedManually == true)
 
         session.setUnfollowed(false, username: "aa")
         session.setUnfollowed(false, username: "bb")
-        #expect(session.counterText == "Oggi: 0 unfollow segnati")
+        #expect(session.counterText == "Oggi: 0 azioni segnate")
         #expect(!session.isOverDailyWarning)
     }
 
@@ -204,5 +210,68 @@ struct ReportSessionTests {
         #expect(lines.first == "username,link,data follow,decisione,fatto,ti segue")
         #expect(lines.count == 6)
         #expect(url.lastPathComponent == "InstaSwipe-2027-01-15.csv")
+    }
+
+    @Test func followerModeListsFollowers() throws {
+        let (session, model) = try makeSession(followers: [
+            makeAccount("f1", decision: .remove),
+            makeAccount("f2", decision: .remove, done: true),
+            makeAccount("f3", decision: .keep)
+        ])
+        model.listMode = .followers
+
+        #expect(session.rows.map(\.username) == ["f1"])
+        #expect(session.count(for: .done) == 1)
+        #expect(session.csvExport.accounts.map(\.username) == ["f1", "f2", "f3"])
+        session.setUnfollowed(true, username: "f1")
+        #expect(model.followers?.accounts.first { $0.username == "f1" }?.unfollowedManually == true)
+        #expect(account("aa", in: model)?.unfollowedManually == false)
+    }
+
+    @Test func followerCSVFileName() throws {
+        let (session, model) = try makeSession(followers: [makeAccount("f1", decision: .remove)])
+        model.listMode = .followers
+
+        let url = try session.writeCSV()
+
+        #expect(url.lastPathComponent == "InstaSwipe-follower-2027-01-15.csv")
+        let text = try String(contentsOf: url, encoding: .utf8)
+        #expect(text.split(separator: "\n").first == "username,link,ti segue dal,decisione,fatto,lo segui")
+    }
+
+    @Test func counterSumsBothLists() throws {
+        let (session, _) = try makeSession(
+            accounts: [makeAccount("aa", decision: .remove, done: true)],
+            followers: [makeAccount("f1", decision: .remove, done: true)]
+        )
+
+        #expect(session.counterText == "Oggi: 2 azioni segnate")
+    }
+
+    @Test func promptKeepsOriginMode() throws {
+        let (session, model) = try makeSession(
+            accounts: [makeAccount("aa", decision: .remove)],
+            followers: [makeAccount("aa", decision: .remove)]
+        )
+        model.listMode = .followers
+        _ = session.open(makeAccount("aa", decision: .remove))
+        model.listMode = .following
+        session.scenePhaseChanged(.background)
+        session.scenePhaseChanged(.active)
+
+        #expect(session.promptTitle(for: "aa") == "Hai rimosso @aa dai follower?")
+        session.confirmUnfollowed()
+
+        #expect(model.followers?.accounts.first?.unfollowedManually == true)
+        #expect(account("aa", in: model)?.unfollowedManually == false)
+    }
+
+    @Test func promptTitleForFollowing() throws {
+        let (session, _) = try makeSession()
+        _ = session.open(makeAccount("aa", decision: .remove))
+        session.scenePhaseChanged(.background)
+        session.scenePhaseChanged(.active)
+
+        #expect(session.promptTitle(for: "aa") == "Hai tolto il follow a @aa?")
     }
 }

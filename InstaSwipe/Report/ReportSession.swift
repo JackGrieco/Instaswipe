@@ -31,12 +31,14 @@ final class ReportSession {
 
     // MARK: State
 
+    private var activeList: AccountList? { model.list(model.listMode) }
+
     var rows: [FollowedAccount] {
-        model.state.map { Report.accounts(filter, search: searchText, in: $0) } ?? []
+        activeList.map { Report.accounts(filter, search: searchText, in: $0) } ?? []
     }
 
     func count(for filter: ReportFilter) -> Int {
-        model.state.map { Report.counts(in: $0)[filter] ?? 0 } ?? 0
+        activeList.map { Report.counts(in: $0)[filter] ?? 0 } ?? 0
     }
 
     func label(for filter: ReportFilter) -> String {
@@ -53,26 +55,35 @@ final class ReportSession {
         }
     }
 
-    var unfollowsToday: Int {
-        model.state.map { Report.unfollowsToday(in: $0, now: now(), calendar: calendar) } ?? 0
-    }
+    /// Unfollows plus follower removals marked today.
+    var unfollowsToday: Int { model.actionsToday(now: now(), calendar: calendar) }
 
-    var counterText: String { "Oggi: \(unfollowsToday) unfollow segnati" }
+    var counterText: String { "Oggi: \(unfollowsToday) azioni segnate" }
 
     var isOverDailyWarning: Bool { unfollowsToday >= Limits.dailyUnfollowWarning }
 
     // MARK: Actions
 
     func setUnfollowed(_ done: Bool, username: String) {
-        model.apply { Report.setUnfollowed(done, username: username, in: $0, now: now()) }
+        setUnfollowed(done, username: username, mode: model.listMode)
     }
 
     func decide(_ decision: Decision, username: String) {
-        model.apply { Review.decide(decision, username: username, in: $0, now: now()) }
+        decide(decision, username: username, mode: model.listMode)
     }
 
     func retryAvailability(username: String) {
-        model.apply { Review.markAvailability(.unknown, displayName: nil, username: username, in: $0) }
+        model.apply(model.listMode) {
+            Review.markAvailability(.unknown, displayName: nil, username: username, in: $0)
+        }
+    }
+
+    private func setUnfollowed(_ done: Bool, username: String, mode: ListMode) {
+        model.apply(mode) { Report.setUnfollowed(done, username: username, in: $0, now: now()) }
+    }
+
+    private func decide(_ decision: Decision, username: String, mode: ListMode) {
+        model.apply(mode) { Review.decide(decision, username: username, in: $0, now: now()) }
     }
 
     // MARK: Return from Instagram
@@ -84,7 +95,7 @@ final class ReportSession {
 
     /// Returns the URL to open. Only accounts marked "Tolgo" get the return prompt.
     func open(_ account: FollowedAccount) -> URL {
-        returnPrompt.willOpen(account.decision == .remove ? .init(username: account.username, mode: .following) : nil)
+        returnPrompt.willOpen(account.decision == .remove ? .init(username: account.username, mode: model.listMode) : nil)
         return account.profileURL
     }
 
@@ -92,14 +103,22 @@ final class ReportSession {
         returnPrompt.scenePhaseChanged(phase)
     }
 
+    /// Acts on the list the profile was opened from, even if the mode changed meanwhile.
     func confirmUnfollowed() {
-        if let username = promptUsername { setUnfollowed(true, username: username) }
+        if let prompt = returnPrompt.prompt { setUnfollowed(true, username: prompt.username, mode: prompt.mode) }
         dismissPrompt()
     }
 
     func changeMindKeep() {
-        if let username = promptUsername { decide(.keep, username: username) }
+        if let prompt = returnPrompt.prompt { decide(.keep, username: prompt.username, mode: prompt.mode) }
         dismissPrompt()
+    }
+
+    func promptTitle(for username: String) -> String {
+        switch returnPrompt.prompt?.mode ?? model.listMode {
+        case .following: "Hai tolto il follow a @\(username)?"
+        case .followers: "Hai rimosso @\(username) dai follower?"
+        }
     }
 
     func dismissPrompt() {
@@ -110,7 +129,7 @@ final class ReportSession {
 
     /// Snapshot handed to the share sheet; the file is only written when the user actually shares.
     var csvExport: CSVExport {
-        CSVExport(accounts: model.state?.accounts ?? [], now: now(), timeZone: calendar.timeZone, directory: directory)
+        CSVExport(accounts: activeList?.accounts ?? [], mode: model.listMode, now: now(), timeZone: calendar.timeZone, directory: directory)
     }
 
     func writeCSV() throws -> URL { try csvExport.writeFile() }
@@ -118,6 +137,7 @@ final class ReportSession {
 
 struct CSVExport: Transferable, Sendable {
     let accounts: [FollowedAccount]
+    let mode: ListMode
     let now: Date
     let timeZone: TimeZone
     let directory: URL
@@ -127,12 +147,13 @@ struct CSVExport: Transferable, Sendable {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = timeZone
         formatter.dateFormat = "yyyy-MM-dd"
-        return "InstaSwipe-\(formatter.string(from: now)).csv"
+        let prefix = mode == .followers ? "InstaSwipe-follower" : "InstaSwipe"
+        return "\(prefix)-\(formatter.string(from: now)).csv"
     }
 
     func writeFile() throws -> URL {
         let url = directory.appendingPathComponent(fileName)
-        try CSVExporter.csv(for: accounts).write(to: url, atomically: true, encoding: .utf8)
+        try CSVExporter.csv(for: accounts, mode: mode).write(to: url, atomically: true, encoding: .utf8)
         return url
     }
 

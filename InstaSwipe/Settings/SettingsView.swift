@@ -6,6 +6,7 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var isImporting = false
     @State private var isLoggingIn = false
+    @State private var isShowingTutorial = false
 
     var body: some View {
         NavigationStack {
@@ -19,6 +20,7 @@ struct SettingsView: View {
                     )
                 }
                 Section {
+                    Button("Come esportare da Instagram") { isShowingTutorial = true }
                     Button("Reimporta export") { isImporting = true }
                     Button("Accedi di nuovo a Instagram") { isLoggingIn = true }
                 }
@@ -34,7 +36,14 @@ struct SettingsView: View {
                 ExportPicker.handle(result, model: model)
             }
             .sheet(isPresented: $isLoggingIn) { LoginView() }
-            .errorAlert(model, isActive: model.pendingMerge == nil)
+            .sheet(isPresented: $isShowingTutorial) { ExportTutorialView(model: model, context: .settings) }
+            .onChange(of: model.confirmedImportCount) {
+                // An import from the tutorial ends on the cards (step 14); "Reimporta export" stays here.
+                guard isShowingTutorial else { return }
+                isShowingTutorial = false
+                dismiss()
+            }
+            .errorAlert(model, isActive: model.pendingMerge == nil && !isShowingTutorial)
             .sheet(isPresented: pendingBinding) {
                 if let preview = model.pendingMerge {
                     MergeSummaryView(model: model, preview: preview)
@@ -55,6 +64,7 @@ struct SettingsView: View {
     }
 
     private var pendingBinding: Binding<Bool> {
-        Binding(get: { model.pendingMerge != nil }, set: { if !$0 { model.cancelImport() } })
+        // While the tutorial is up, its own import controls present the summary.
+        Binding(get: { model.pendingMerge != nil && !isShowingTutorial }, set: { if !$0 { model.cancelImport() } })
     }
 }

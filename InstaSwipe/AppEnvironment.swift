@@ -10,6 +10,8 @@ struct AppEnvironment: Sendable {
     let isUITesting: Bool
     let useFakeProfiles: Bool
     let shouldSeedTestAccounts: Bool
+    /// `UserDefaults` suite for UI preferences; nil means `.standard`.
+    let defaultsSuiteName: String?
 
     /// Resolves directories off the main thread: the ubiquity container lookup can block.
     static func resolve(arguments: [String] = ProcessInfo.processInfo.arguments) async -> AppEnvironment {
@@ -19,7 +21,9 @@ struct AppEnvironment: Sendable {
                 cloudDirectory: nil,
                 isUITesting: true,
                 useFakeProfiles: true,
-                shouldSeedTestAccounts: arguments.contains(seedArgument)
+                shouldSeedTestAccounts: arguments.contains(seedArgument),
+                // One suite per state dir: fresh for each test, kept across a relaunch.
+                defaultsSuiteName: "uitest-" + URL(fileURLWithPath: arguments[index + 1]).lastPathComponent
             )
         }
         let cloud = await Task.detached(priority: .userInitiated) { cloudDocumentsDirectory() }.value
@@ -28,8 +32,13 @@ struct AppEnvironment: Sendable {
             cloudDirectory: cloud,
             isUITesting: false,
             useFakeProfiles: false,
-            shouldSeedTestAccounts: false
+            shouldSeedTestAccounts: false,
+            defaultsSuiteName: nil
         )
+    }
+
+    var defaults: UserDefaults {
+        defaultsSuiteName.flatMap(UserDefaults.init(suiteName:)) ?? .standard
     }
 
     private static func localSupportDirectory() -> URL {

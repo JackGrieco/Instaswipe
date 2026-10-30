@@ -51,11 +51,13 @@ struct RootView: View {
             case .main:
                 mainTabs
             case .importer:
-                ImportView(model: model)
+                ExportTutorialView(model: model, context: .onboarding)
             }
         }
         .font(.outfit(16))
         .errorAlert(model, isActive: !settings.isPresented && model.pendingMerge == nil)
+        // The summary's button reads "Inizia a swipare": every confirmed import ends on the cards.
+        .onChange(of: model.confirmedImportCount) { selectedTab = .swipe }
     }
 
     private var mainTabs: some View {

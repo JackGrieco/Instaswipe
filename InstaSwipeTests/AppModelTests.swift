@@ -24,17 +24,7 @@ struct AppModelTests {
         try FileStateStore(localDirectory: local, cloudDirectory: nil).save(state)
     }
 
-    /// Export folder whose following.json lists `usernames`.
-    private func makeExport(_ usernames: [String]) throws -> URL {
-        let dir = try makeDirectory()
-        let items: [[String: Any]] = usernames.map { name in
-            ["title": name, "media_list_data": [],
-             "string_list_data": [["href": "https://www.instagram.com/_u/\(name)", "timestamp": 1_600_000_000]]]
-        }
-        let data = try JSONSerialization.data(withJSONObject: ["relationships_following": items])
-        try data.write(to: dir.appendingPathComponent("following.json"))
-        return dir
-    }
+    private func makeExport(_ usernames: [String]) throws -> URL { try TestSupport.makeExport(usernames) }
 
     private func setPermissions(_ mode: Int, _ url: URL) throws {
         try FileManager.default.setAttributes([.posixPermissions: mode], ofItemAtPath: url.path)

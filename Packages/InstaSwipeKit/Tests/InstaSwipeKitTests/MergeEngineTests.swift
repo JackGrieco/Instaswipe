@@ -15,8 +15,26 @@ struct MergeEngineTests {
         )
     }
 
-    private static func snapshot(_ follows: [ExportedFollow], followers: Set<String> = []) -> ExportSnapshot {
-        ExportSnapshot(follows: follows, followers: followers)
+    private static func snapshot(_ follows: [ExportedFollow], followers: Set<String>? = []) -> ExportSnapshot {
+        ExportSnapshot(follows: follows, followers: followers?.sorted().map { follow($0, nil) })
+    }
+
+    @Test func missingFollowerFilesKeepFollowsMe() {
+        let current = Fixtures.state([Fixtures.account("aa", since: Self.day(1), decision: .keep, followsMe: true)])
+        let snap = Self.snapshot([Self.follow("aa", 1)], followers: nil)
+
+        let result = MergeEngine.preview(current: current, snapshot: snap, now: Self.now).state.accounts[0]
+
+        #expect(result.followsMe == true)
+    }
+
+    @Test func emptyFollowerFilesClearFollowsMe() {
+        let current = Fixtures.state([Fixtures.account("aa", since: Self.day(1), decision: .keep, followsMe: true)])
+        let snap = Self.snapshot([Self.follow("aa", 1)], followers: [])
+
+        let result = MergeEngine.preview(current: current, snapshot: snap, now: Self.now).state.accounts[0]
+
+        #expect(result.followsMe == false)
     }
 
     @Test func firstImportCreatesPendingAccountsInOldestFirstOrder() {

@@ -5,6 +5,10 @@ public enum Decision: String, Codable, Sendable { case pending, keep, remove, un
 
 public enum Availability: String, Codable, Sendable { case unknown, available, unavailable }
 
+/// In the followers list the fields read as: `followedSince` = since when they follow you,
+/// `followsMe` = whether you follow them (recomputed by `Linking`), `unfollowedManually` /
+/// `unfollowedAt` = removed by hand from your followers / when.
+///
 /// Persisted inside `AppState`: same schema evolution rule (new fields optional or decoded with
 /// `decodeIfPresent` and a default; bump `AppState.schemaVersion` only with a migration).
 public struct FollowedAccount: Codable, Sendable, Equatable, Identifiable {

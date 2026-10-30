@@ -160,3 +160,14 @@ enum Haptics {
         UIImpactFeedbackGenerator(style: style).impactOccurred()
     }
 }
+
+/// The line shown once today's unfollows and removals pass `Limits.dailyUnfollowWarning`.
+/// Callers set the alignment.
+struct DailyLimitWarning: View {
+    var body: some View {
+        Text("Hai superato i \(Limits.dailyUnfollowWarning) di oggi: meglio fermarsi per evitare blocchi da Instagram.")
+            .font(.outfit(13))
+            .foregroundStyle(Theme.warningText)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}

@@ -47,7 +47,7 @@ struct AppModelRestoreTests {
         #expect(model.loadError != nil)
 
         model.prepareRestore()
-        #expect(model.pendingRestore?.accounts.map(\.username) == ["a", "b"])
+        #expect(model.pendingRestore?.state?.accounts.map(\.username) == ["a", "b"])
         model.confirmRestore()
 
         #expect(model.loadError == nil)

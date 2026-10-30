@@ -78,9 +78,11 @@ struct RootView: View {
         .sheet(isPresented: $settings.isPresented) { SettingsView(model: model) }
     }
 
-    /// Badge on "Da togliere": accounts still to unfollow; 0 hides it.
+    /// Badge on "Da togliere": accounts still to do in both lists; 0 hides it.
     private var toDoCount: Int {
-        model.state.map { Report.counts(in: $0)[.toDo] ?? 0 } ?? 0
+        ListMode.allCases.reduce(0) { total, mode in
+            total + (model.list(mode).map { Report.counts(in: $0)[.toDo] ?? 0 } ?? 0)
+        }
     }
 
     @ViewBuilder private var banners: some View {
@@ -146,13 +148,7 @@ struct LoadErrorView: View {
         Binding(get: { model.pendingRestore != nil }, set: { _ in })
     }
 
-    private var restoreTitle: String {
-        guard let backup = model.pendingRestore else { return "" }
-        return "Ripristinare la copia del \(backup.savedAt.formatted(date: .abbreviated, time: .shortened))?"
-    }
+    private var restoreTitle: String { model.pendingRestore?.title ?? "" }
 
-    private var restoreMessage: String {
-        let decided = model.pendingRestore?.accounts.filter { $0.decision != .pending }.count ?? 0
-        return "Contiene \(decided) decisioni. Diventerà il tuo stato attuale; i file illeggibili restano da parte."
-    }
+    private var restoreMessage: String { model.pendingRestore?.message ?? "" }
 }

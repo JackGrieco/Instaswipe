@@ -39,6 +39,7 @@ struct SwipeCardScreen: View {
                 .padding(.bottom, 21)
         }
         .background { feedbackTints }
+        .onChange(of: session.revertedUnfollowCount) { cardReturned() }
     }
 
     // MARK: Background feedback
@@ -72,7 +73,7 @@ struct SwipeCardScreen: View {
             if let next = session.next {
                 AccountCardView(
                     account: next, imageURL: session.imageURL(for: next.username),
-                    isOffline: session.isOfflineSession, isFront: false
+                    isOffline: session.isOfflineSession, mode: session.mode, isFront: false
                 )
                     .scaleEffect(0.92 + 0.08 * dragProgress)
                     .offset(y: 14 - 14 * dragProgress)
@@ -86,13 +87,17 @@ struct SwipeCardScreen: View {
                     account: current,
                     imageURL: session.imageURL(for: current.username),
                     isOffline: session.isOfflineSession,
+                    mode: session.mode,
                     dragOffset: $dragOffset,
-                    entryDecision: entryDecision,
+                    entryDecision: entryDecision ?? session.revertedEntryDecision,
                     onRelease: release,
                     onTap: session.requestProfilePage
                 )
                 .id(current.username)
-                .onAppear { entryDecision = nil }
+                .onAppear {
+                    entryDecision = nil
+                    session.consumeRevertedEntry()
+                }
             }
         }
     }
@@ -182,12 +187,22 @@ struct SwipeCardScreen: View {
         }
     }
 
+    /// The unfollow page closed without "Fatto": the session already restored the card, entering from the left.
+    private func cardReturned() {
+        reenterCard(from: .remove)
+    }
+
     private func undo() {
         guard !isExiting else { return }
         let username = session.current?.username
         let decision = session.lastDecision
         session.undo()
         guard session.current?.username != username else { return }
+        reenterCard(from: decision)
+    }
+
+    /// The restored card slides back in from the side it left, with the "undone" toast.
+    private func reenterCard(from decision: Decision?) {
         Haptics.impact(.soft)
         dragOffset = .zero
         entryDecision = decision
@@ -224,8 +239,9 @@ private struct SwipeHeader: View {
                     .foregroundStyle(Theme.ink2)
                     .accessibilityIdentifier("progressLabel")
             }
+            ListModePicker(mode: $session.mode, isDisabled: isFilterLocked)
             Toggle(isOn: $session.isNotFollowingBackOnly.animation(.easeOut(duration: 0.2))) {
-                Label("Solo chi non ti segue", systemImage: "person.fill.xmark")
+                Label(session.mode.notFollowingBackFilter, systemImage: "person.fill.xmark")
                     .font(.outfit(14, .medium))
                     .foregroundStyle(Theme.ink2)
             }

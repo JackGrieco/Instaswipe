@@ -1,14 +1,19 @@
 import Foundation
 
 public enum CSVExporter {
-    static let header = "username,link,data follow,decisione,fatto,ti segue"
+    static func header(for mode: ListMode) -> String {
+        switch mode {
+        case .following: "username,link,data follow,decisione,fatto,ti segue"
+        case .followers: "username,link,ti segue dal,decisione,fatto,lo segui"
+        }
+    }
 
-    public static func csv(for accounts: [FollowedAccount]) -> String {
+    public static func csv(for accounts: [FollowedAccount], mode: ListMode = .following) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd"
         let rows = accounts.map { row(for: $0, formatter: formatter) }
-        return ([header] + rows).joined(separator: "\n")
+        return ([header(for: mode)] + rows).joined(separator: "\n")
     }
 
     static func escape(_ field: String) -> String {

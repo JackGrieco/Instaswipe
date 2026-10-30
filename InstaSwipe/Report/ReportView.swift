@@ -5,7 +5,7 @@ import SwiftUI
 struct ReportView: View {
     private static let listCornerRadius: CGFloat = 22
 
-    let model: AppModel
+    @Bindable var model: AppModel
     @State private var session: ReportSession
     @State private var toast: Toast?
     @Environment(\.openURL) private var openURL
@@ -21,12 +21,18 @@ struct ReportView: View {
         List {
             Group {
                 header
-                ReportCounterCard(session: session)
-                ReportFilterPicker(session: session)
-                ReportSearchField(text: $session.searchText)
+                // The picker stays in the invite too, so the user can switch back.
+                ListModePicker(mode: $model.listMode)
+                if session.isAwaitingFollowerImport {
+                    NoFollowersView().padding(.vertical, 36)
+                } else {
+                    ReportCounterCard(session: session)
+                    ReportFilterPicker(session: session)
+                    ReportSearchField(text: $session.searchText)
+                }
             }
             .reportListRow(insets: EdgeInsets(top: 7, leading: 16, bottom: 7, trailing: 16))
-            rowsList
+            if !session.isAwaitingFollowerImport { rowsList }
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
@@ -47,19 +53,25 @@ struct ReportView: View {
                 .foregroundStyle(Theme.ink)
                 .accessibilityAddTraits(.isHeader)
             Spacer()
-            ShareLink(item: session.csvExport, preview: SharePreview("InstaSwipe.csv")) {
-                Image(systemName: "square.and.arrow.up")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(Theme.ink)
-                    .frame(width: 40, height: 40)
-                    .background(Circle().fill(Theme.surface2))
-            }
-            .buttonStyle(PressScaleButtonStyle(scale: 0.92))
-            .accessibilityLabel("Condividi CSV")
+            // Nothing to export before the follower list exists.
+            if !session.isAwaitingFollowerImport { shareButton }
             SettingsButton()
         }
         .padding(.horizontal, 4)
         .padding(.top, 4)
+    }
+
+    private var shareButton: some View {
+        let export = session.csvExport
+        return ShareLink(item: export, preview: SharePreview(export.fileName)) {
+            Image(systemName: "square.and.arrow.up")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(Theme.ink)
+                .frame(width: 40, height: 40)
+                .background(Circle().fill(Theme.surface2))
+        }
+        .buttonStyle(PressScaleButtonStyle(scale: 0.92))
+        .accessibilityLabel("Condividi CSV")
     }
 
     @ViewBuilder private var rowsList: some View {
@@ -74,7 +86,7 @@ struct ReportView: View {
                 .reportListRow(insets: EdgeInsets(top: 7, leading: 16, bottom: 7, trailing: 16))
         } else {
             ForEach(Array(rows.enumerated()), id: \.element.id) { index, account in
-                ReportRow(account: account, thumbnails: thumbnails, showsSeparator: index > 0) {
+                ReportRow(account: account, thumbnails: thumbnails, showsSeparator: index > 0, mode: model.listMode) {
                     Haptics.impact(.soft)
                     session.setUnfollowed(!account.unfollowedManually, username: account.username)
                 }
@@ -113,8 +125,9 @@ struct ReportView: View {
     @ViewBuilder private var promptSheet: some View {
         if let username = session.promptUsername {
             ReturnPromptSheet(
-                account: model.state?.accounts.first { $0.username == username },
+                account: model.list(session.returnPrompt.prompt?.mode ?? model.listMode)?.accounts.first { $0.username == username },
                 username: username,
+                title: session.promptTitle(for: username),
                 thumbnails: thumbnails,
                 onConfirm: {
                     session.confirmUnfollowed()

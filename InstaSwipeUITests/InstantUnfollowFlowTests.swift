@@ -34,6 +34,34 @@ final class InstantUnfollowFlowTests: XCTestCase {
         XCTAssertTrue(counter.label.hasPrefix("Oggi: 1"), counter.label)
     }
 
+    @MainActor
+    func testCloseWithoutDoneBringsTheCardBack() throws {
+        let stateDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).path
+        let app = XCUIApplication()
+        app.launchArguments = ["-uiTestStateDir", stateDir, "-uiTestSeed"]
+        app.launch()
+
+        let remove = app.buttons["removeButton"]
+        XCTAssertTrue(remove.waitForExistence(timeout: 10))
+        let settings = try XCTUnwrap(
+            app.buttons.matching(identifier: "gearshape").allElementsBoundByIndex.first { $0.isHittable },
+            "no visible settings button"
+        )
+        let toggle = app.switches["instantUnfollowToggle"]
+        tap(settings, until: toggle.exists)
+        tap(toggle.switches.firstMatch, until: toggle.value as? String == "1")
+        tap(app.buttons["Fine"], until: !toggle.exists)
+
+        let done = app.buttons["unfollowDoneButton"]
+        tap(remove, until: done.exists)
+        let close = app.navigationBars["@test_01"].buttons["Chiudi"]
+        tap(close, until: !done.exists)
+
+        let username = app.staticTexts["cardUsername"]
+        XCTAssertTrue(username.waitForExistence(timeout: 5))
+        XCTAssertTrue(username.label.contains("test_01"), username.label)
+    }
+
     /// Taps that land during a presentation animation are sometimes dropped: retry until `condition` holds.
     private func tap(
         _ element: XCUIElement,

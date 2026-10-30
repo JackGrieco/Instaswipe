@@ -5,6 +5,7 @@ struct ReportRow: View {
     let account: FollowedAccount
     let thumbnails: ThumbnailCache
     let showsSeparator: Bool
+    var mode = ListMode.following
     let onToggleDone: () -> Void
 
     /// Same rule as the "Spariti" filter: the profile no longer exists on Instagram.
@@ -23,7 +24,7 @@ struct ReportRow: View {
                     .foregroundStyle(Theme.ink2)
                     .lineLimit(1)
                 if account.followsMe {
-                    Text("ti segue").font(.outfit(12, .medium)).foregroundStyle(Theme.green)
+                    Text(mode.followsBackTag).font(.outfit(12, .medium)).foregroundStyle(Theme.green)
                 }
             }
             Spacer(minLength: 0)

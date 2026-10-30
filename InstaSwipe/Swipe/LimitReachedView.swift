@@ -1,3 +1,4 @@
+import InstaSwipeKit
 import SwiftUI
 
 /// Shown when the daily profile budget is used up or Instagram asked to slow down.
@@ -64,6 +65,7 @@ struct LimitReachedView: View {
 }
 
 struct SwipeEndView: View {
+    var mode = ListMode.following
     let kept: Int
     let toRemove: Int
     let gone: Int
@@ -83,7 +85,7 @@ struct SwipeEndView: View {
                 .padding(.top, 22)
                 .riseIn(delay: 0.1)
             if onShowEveryone != nil {
-                Text("Hai rivisto tutti quelli che non ti seguono.")
+                Text(mode.filterFinishedMessage)
                     .font(.outfit(15))
                     .foregroundStyle(Theme.ink2)
                     .multilineTextAlignment(.center)
@@ -102,7 +104,7 @@ struct SwipeEndView: View {
                 .padding(.top, 32)
                 .riseIn(delay: 0.3)
             if let onShowEveryone {
-                Button("Mostra anche chi ti segue", action: onShowEveryone)
+                Button(mode.showEveryoneButton, action: onShowEveryone)
                     .buttonStyle(OutlineCapsuleButtonStyle())
                     .padding(.top, 14)
                     .riseIn(delay: 0.35)

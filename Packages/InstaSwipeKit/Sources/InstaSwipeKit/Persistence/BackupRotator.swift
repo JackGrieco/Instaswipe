@@ -6,7 +6,19 @@ public enum BackupKind: Sendable {
     case preImport
 }
 
-/// Writes timestamped copies of the state and keeps only the newest of each kind.
+/// What a restore takes from one backup file (its state or its followers) and the file's name:
+/// two restore sources are the same backup when their names match.
+public struct BackupFile<Content: Sendable & Equatable>: Sendable, Equatable {
+    public let name: String
+    public let content: Content
+
+    public init(name: String, content: Content) {
+        self.name = name
+        self.content = content
+    }
+}
+
+/// Writes timestamped copies of both lists (see `BackupSnapshot`) and keeps only the newest of each kind.
 public struct BackupRotator: Sendable {
     private static let backupPrefixes = ["daily-", "step-", "preimport-"]
 
@@ -16,43 +28,65 @@ public struct BackupRotator: Sendable {
         self.directory = directory
     }
 
-    /// Writes today's daily backup and, on every 100th decision, a step backup.
+    /// Writes today's daily backup and, on every 100th decision across both lists, a step backup.
     /// Existing files are never overwritten. Returns what was written.
-    public func backupIfNeeded(_ state: AppState, now: Date, calendar: Calendar) throws -> [BackupKind] {
+    public func backupIfNeeded(_ snapshot: BackupSnapshot, now: Date, calendar: Calendar) throws -> [BackupKind] {
         var written: [BackupKind] = []
         let dailyName = "daily-\(FileNameStamp.day(now, calendar: calendar)).json"
-        if try writeIfMissing(state, name: dailyName) { written.append(.daily) }
+        if try writeIfMissing(snapshot, name: dailyName) { written.append(.daily) }
 
-        let decisions = state.totalDecisionsMade
+        let decisions = snapshot.totalDecisionsMade
         if decisions > 0, decisions % Limits.backupEveryDecisions == 0,
-           try writeIfMissing(state, name: "step-\(decisions).json") {
+           try writeIfMissing(snapshot, name: "step-\(decisions).json") {
             written.append(.step(decisions))
         }
         if !written.isEmpty { try prune() }
         return written
     }
 
-    public func backup(_ state: AppState, kind: BackupKind, now: Date) throws {
+    public func backup(_ snapshot: BackupSnapshot, kind: BackupKind, now: Date) throws {
         switch kind {
         case .daily:
-            try write(state, name: "daily-\(FileNameStamp.day(now, calendar: .current)).json")
+            try write(snapshot, name: "daily-\(FileNameStamp.day(now, calendar: .current)).json")
         case let .step(count):
-            try write(state, name: "step-\(count).json")
+            try write(snapshot, name: "step-\(count).json")
         case .preImport:
-            try write(state, name: uniquePreImportName(now))
+            try write(snapshot, name: uniquePreImportName(now))
         }
         try prune()
     }
 
     /// The newest backup (daily, step or pre-import) that still decodes: newest file
-    /// modification date first, then newest name. `nil` when there is none.
-    public func newestValidBackup() throws -> AppState? {
+    /// modification date first, then newest name. `nil` when there is none. Backups written
+    /// before the follower list existed decode with `followers == nil`.
+    public func newestValidBackup() throws -> BackupSnapshot? {
+        try newestDecodable(BackupSnapshot.self) { $0 }?.content
+    }
+
+    /// Restore source for the state: the newest backup whose state decodes and has accounts (a
+    /// pre-import backup holds an empty placeholder before any following existed). The state is
+    /// decoded on its own, so an unreadable `followers` key never hides a good state.
+    public func newestStateBackup() throws -> BackupFile<AppState>? {
+        try newestDecodable(AppState.self) { $0.accounts.isEmpty ? nil : $0 }
+    }
+
+    /// Restore source for the followers: the newest backup whose followers decode. Older builds
+    /// share this folder, so newer backups may lack followers.
+    public func newestFollowersBackup() throws -> BackupFile<FollowerState>? {
+        try newestDecodable(BackupSnapshot.self) { $0.followers }
+    }
+
+    /// Newest first, the first file that decodes as `Decoded` and for which `extract` returns content.
+    private func newestDecodable<Decoded: Decodable, Content>(
+        _ type: Decoded.Type, extract: (Decoded) -> Content?
+    ) throws -> BackupFile<Content>? {
         guard FileManager.default.fileExists(atPath: directory.path) else { return nil }
         let decoder = StateCoding.decoder()
         for url in try backupFilesNewestFirst() {
             guard let data = try? Data(contentsOf: url),
-                  let state = try? decoder.decode(AppState.self, from: data) else { continue }
-            return state
+                  let decoded = try? decoder.decode(type, from: data),
+                  let content = extract(decoded) else { continue }
+            return BackupFile(name: url.lastPathComponent, content: content)
         }
         return nil
     }
@@ -89,14 +123,14 @@ public struct BackupRotator: Sendable {
         FileManager.default.fileExists(atPath: directory.appendingPathComponent(name).path)
     }
 
-    private func writeIfMissing(_ state: AppState, name: String) throws -> Bool {
+    private func writeIfMissing(_ snapshot: BackupSnapshot, name: String) throws -> Bool {
         guard !exists(name) else { return false }
-        try write(state, name: name)
+        try write(snapshot, name: name)
         return true
     }
 
-    private func write(_ state: AppState, name: String) throws {
-        let data = try StateCoding.encoder().encode(state)
+    private func write(_ snapshot: BackupSnapshot, name: String) throws {
+        let data = try StateCoding.encoder().encode(snapshot)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try data.write(to: directory.appendingPathComponent(name), options: .atomic)
     }

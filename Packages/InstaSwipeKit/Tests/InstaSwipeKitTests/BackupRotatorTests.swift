@@ -24,6 +24,10 @@ private func stateWith(decisions: Int) -> AppState {
     return state
 }
 
+private func snapshotWith(decisions: Int) -> BackupSnapshot {
+    BackupSnapshot(state: stateWith(decisions: decisions), followers: nil)
+}
+
 private func names(_ directory: URL) -> [String] {
     ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []).sorted()
 }
@@ -31,8 +35,8 @@ private func names(_ directory: URL) -> [String] {
 @Test func dailyBackupOncePerDay() throws {
     try withTempDir { dir in
         let rotator = BackupRotator(directory: dir)
-        let first = try rotator.backupIfNeeded(stateWith(decisions: 1), now: day(0), calendar: utc)
-        let second = try rotator.backupIfNeeded(stateWith(decisions: 2), now: day(0), calendar: utc)
+        let first = try rotator.backupIfNeeded(snapshotWith(decisions: 1), now: day(0), calendar: utc)
+        let second = try rotator.backupIfNeeded(snapshotWith(decisions: 2), now: day(0), calendar: utc)
         #expect(first.count == 1)
         #expect(second.isEmpty)
         #expect(names(dir) == ["daily-2023-11-14.json"])
@@ -42,12 +46,12 @@ private func names(_ directory: URL) -> [String] {
 @Test func stepBackupEveryHundredDecisions() throws {
     try withTempDir { dir in
         let rotator = BackupRotator(directory: dir)
-        _ = try rotator.backupIfNeeded(stateWith(decisions: 99), now: day(0), calendar: utc)
+        _ = try rotator.backupIfNeeded(snapshotWith(decisions: 99), now: day(0), calendar: utc)
         #expect(!names(dir).contains { $0.hasPrefix("step-") })
-        let atHundred = try rotator.backupIfNeeded(stateWith(decisions: 100), now: day(0), calendar: utc)
+        let atHundred = try rotator.backupIfNeeded(snapshotWith(decisions: 100), now: day(0), calendar: utc)
         #expect(atHundred.count == 1)
         #expect(names(dir).contains("step-100.json"))
-        let again = try rotator.backupIfNeeded(stateWith(decisions: 100), now: day(0), calendar: utc)
+        let again = try rotator.backupIfNeeded(snapshotWith(decisions: 100), now: day(0), calendar: utc)
         #expect(again.isEmpty)
         #expect(names(dir).filter { $0.hasPrefix("step-") } == ["step-100.json"])
     }
@@ -56,7 +60,7 @@ private func names(_ directory: URL) -> [String] {
 @Test func zeroDecisionsNeverWritesStepBackup() throws {
     try withTempDir { dir in
         _ = try BackupRotator(directory: dir)
-            .backupIfNeeded(stateWith(decisions: 0), now: day(0), calendar: utc)
+            .backupIfNeeded(snapshotWith(decisions: 0), now: day(0), calendar: utc)
         #expect(!names(dir).contains { $0.hasPrefix("step-") })
     }
 }
@@ -65,7 +69,7 @@ private func names(_ directory: URL) -> [String] {
     try withTempDir { dir in
         let rotator = BackupRotator(directory: dir)
         for offset in 0..<16 {
-            _ = try rotator.backupIfNeeded(stateWith(decisions: 1), now: day(offset), calendar: utc)
+            _ = try rotator.backupIfNeeded(snapshotWith(decisions: 1), now: day(offset), calendar: utc)
         }
         let daily = names(dir)
         #expect(daily.count == Limits.dailyBackupsKept)
@@ -77,9 +81,9 @@ private func names(_ directory: URL) -> [String] {
 @Test func stepPruningSortsNumericallyAndSparesOtherKinds() throws {
     try withTempDir { dir in
         let rotator = BackupRotator(directory: dir)
-        try rotator.backup(stateWith(decisions: 1), kind: .daily, now: day(0))
+        try rotator.backup(snapshotWith(decisions: 1), kind: .daily, now: day(0))
         for step in 1...12 {
-            try rotator.backup(stateWith(decisions: step * 100), kind: .step(step * 100), now: day(0))
+            try rotator.backup(snapshotWith(decisions: step * 100), kind: .step(step * 100), now: day(0))
         }
         let files = names(dir)
         let steps = files.filter { $0.hasPrefix("step-") }
@@ -94,12 +98,12 @@ private func names(_ directory: URL) -> [String] {
     try withTempDir { dir in
         let rotator = BackupRotator(directory: dir)
         let now = Date(timeIntervalSince1970: 1_700_000_000)
-        try rotator.backup(stateWith(decisions: 1), kind: .preImport, now: now)
-        try rotator.backup(stateWith(decisions: 2), kind: .preImport, now: now)
+        try rotator.backup(snapshotWith(decisions: 1), kind: .preImport, now: now)
+        try rotator.backup(snapshotWith(decisions: 2), kind: .preImport, now: now)
         #expect(names(dir).count == 2)
         #expect(names(dir).allSatisfy { $0.hasPrefix("preimport-") })
         for offset in 1...8 {
-            try rotator.backup(stateWith(decisions: 3), kind: .preImport, now: now.addingTimeInterval(Double(offset)))
+            try rotator.backup(snapshotWith(decisions: 3), kind: .preImport, now: now.addingTimeInterval(Double(offset)))
         }
         #expect(names(dir).count == Limits.preImportBackupsKept)
     }
@@ -117,9 +121,9 @@ private func setModified(_ name: String, in directory: URL, _ date: Date) throws
 @Test func newestValidBackupPicksNewestByModificationDateAcrossKinds() throws {
     try withTempDir { dir in
         let rotator = BackupRotator(directory: dir)
-        try rotator.backup(stateWith(decisions: 1), kind: .daily, now: day(0))
-        try rotator.backup(stateWith(decisions: 300), kind: .step(300), now: day(0))
-        try rotator.backup(stateWith(decisions: 7), kind: .preImport, now: day(0))
+        try rotator.backup(snapshotWith(decisions: 1), kind: .daily, now: day(0))
+        try rotator.backup(snapshotWith(decisions: 300), kind: .step(300), now: day(0))
+        try rotator.backup(snapshotWith(decisions: 7), kind: .preImport, now: day(0))
         let files = names(dir)
         let step = try #require(files.first { $0.hasPrefix("step-") })
         let preImport = try #require(files.first { $0.hasPrefix("preimport-") })
@@ -128,7 +132,7 @@ private func setModified(_ name: String, in directory: URL, _ date: Date) throws
         try setModified(step, in: dir, day(3))
         try setModified(preImport, in: dir, day(2))
 
-        #expect(try rotator.newestValidBackup()?.totalDecisionsMade == 300)
+        #expect(try rotator.newestValidBackup()?.state.totalDecisionsMade == 300)
     }
 }
 
@@ -142,7 +146,7 @@ private func setModified(_ name: String, in directory: URL, _ date: Date) throws
         try setModified("daily-2023-11-15.json", in: dir, day(1))
         try setModified("daily-2023-11-16.json", in: dir, day(2))
 
-        #expect(try rotator.newestValidBackup()?.totalDecisionsMade == 9)
+        #expect(try rotator.newestValidBackup()?.state.totalDecisionsMade == 9)
     }
 }
 
@@ -154,7 +158,7 @@ private func setModified(_ name: String, in directory: URL, _ date: Date) throws
         try setModified("daily-2023-11-14.json", in: dir, day(4))
         try setModified("daily-2023-11-15.json", in: dir, day(4))
 
-        #expect(try rotator.newestValidBackup()?.totalDecisionsMade == 9)
+        #expect(try rotator.newestValidBackup()?.state.totalDecisionsMade == 9)
     }
 }
 
@@ -165,5 +169,38 @@ private func setModified(_ name: String, in directory: URL, _ date: Date) throws
         try writeBackup(1, named: "state.json", in: dir)
         try Data("{}".utf8).write(to: dir.appendingPathComponent("step-100.json"))
         #expect(try rotator.newestValidBackup() == nil)
+    }
+}
+
+/// A pre-import backup taken before any following existed holds an empty placeholder state: it
+/// must never become the state a restore puts back, but its followers still count.
+@Test func newestStateBackupSkipsBackupsWithoutAccounts() throws {
+    try withTempDir { dir in
+        let rotator = BackupRotator(directory: dir)
+        let encoder = StateCoding.encoder()
+        let withAccounts = Fixtures.state([Fixtures.account("aa", since: nil)])
+        let placeholder = BackupSnapshot(state: Fixtures.state([]), followers: Fixtures.followers([Fixtures.account("ff", since: nil)]))
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try encoder.encode(withAccounts).write(to: dir.appendingPathComponent("daily-2023-11-14.json"))
+        try encoder.encode(placeholder).write(to: dir.appendingPathComponent("preimport-20231115-000000.json"))
+        try setModified("daily-2023-11-14.json", in: dir, day(0))
+        try setModified("preimport-20231115-000000.json", in: dir, day(1))
+
+        let state = try #require(try rotator.newestStateBackup())
+        let followers = try #require(try rotator.newestFollowersBackup())
+
+        #expect(state.name == "daily-2023-11-14.json")
+        #expect(state.content.accounts.map(\.username) == ["aa"])
+        #expect(followers.name == "preimport-20231115-000000.json")
+        #expect(try rotator.newestValidBackup()?.state.accounts.isEmpty == true)
+    }
+}
+
+@Test func newestStateBackupIsNilWhenEveryStateIsEmpty() throws {
+    try withTempDir { dir in
+        let rotator = BackupRotator(directory: dir)
+        try rotator.backup(snapshotWith(decisions: 0), kind: .preImport, now: day(0))
+
+        #expect(try rotator.newestStateBackup() == nil)
     }
 }

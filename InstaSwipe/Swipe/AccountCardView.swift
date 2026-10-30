@@ -9,6 +9,7 @@ struct AccountCardView: View {
     let imageURL: URL?
     /// Offline session: no photo or name, just a grey card titled with the @username.
     var isOffline = false
+    var mode = ListMode.following
     /// False for the card waiting behind: it must not expose the front card's test identifiers.
     var isFront = true
 
@@ -96,12 +97,12 @@ struct AccountCardView: View {
             }
             HStack(spacing: 8) {
                 if let since = account.followedSince {
-                    Text("Lo segui dal \(Self.dateFormatter.string(from: since))")
+                    Text("\(mode.sinceLabel) \(Self.dateFormatter.string(from: since))")
                         .font(.outfit(14))
                         .foregroundStyle(.white.opacity(0.8))
                 }
                 if account.followsMe {
-                    TagPill(text: "Ti segue", foreground: .white, background: Theme.green.opacity(0.92), weight: .bold)
+                    TagPill(text: mode.followsBackBadge, foreground: .white, background: Theme.green.opacity(0.92), weight: .bold)
                 }
             }
             .padding(.top, 6)

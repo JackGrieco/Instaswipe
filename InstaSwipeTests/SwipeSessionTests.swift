@@ -324,15 +324,47 @@ struct SwipeSessionTests {
         #expect(session.unfollowUsername == nil)
     }
 
-    @Test func closingWithoutConfirmingLeavesTheUnfollowToDo() async throws {
+    @Test func closingInstantUnfollowPageRevertsTheSwipe() async throws {
         let (session, model, _) = try makeSession(defaults: instantUnfollowDefaults())
         session.decide(.remove)
+        #expect(session.unfollowUsername == "aa")
 
         session.closeProfilePage()
 
-        #expect(account("aa", in: model)?.decision == .remove)
-        #expect(account("aa", in: model)?.unfollowedManually == false)
+        #expect(account("aa", in: model)?.decision == .pending)
+        #expect(account("aa", in: model)?.decidedAt == nil)
+        #expect(session.current?.username == "aa")
+        #expect(session.profilePageURL == nil)
         #expect(session.unfollowUsername == nil)
+        #expect(session.revertedUnfollowCount == 1)
+        #expect(session.revertedEntryDecision == .remove)
+
+        session.consumeRevertedEntry()
+        #expect(session.revertedEntryDecision == nil)
+    }
+
+    @Test func doneOnInstantUnfollowPageKeepsTheRemoval() async throws {
+        let (session, model, _) = try makeSession(defaults: instantUnfollowDefaults())
+        session.decide(.remove)
+
+        session.confirmUnfollowed()
+
+        #expect(account("aa", in: model)?.decision == .remove)
+        #expect(account("aa", in: model)?.unfollowedManually == true)
+        #expect(session.revertedUnfollowCount == 0)
+        #expect(session.revertedEntryDecision == nil)
+    }
+
+    @Test func closingAPlainProfilePageChangesNothing() async throws {
+        let (session, model, _) = try makeSession(defaults: instantUnfollowDefaults())
+        session.decide(.keep)
+        session.requestProfilePage()
+
+        session.closeProfilePage()
+
+        #expect(account("aa", in: model)?.decision == .keep)
+        #expect(session.profilePageURL == nil)
+        #expect(session.revertedUnfollowCount == 0)
     }
 
     @Test func tappingTheCardIsNotAnUnfollow() async throws {

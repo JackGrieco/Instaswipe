@@ -63,6 +63,29 @@ struct ExportLocatorTests {
         #expect(snapshot.follows.count == 2)
         let anna = snapshot.follows.first { $0.username == "anna" }
         #expect(anna?.followedSince == Date(timeIntervalSince1970: 100))
-        #expect(snapshot.followers == ["bob"])
+        #expect(snapshot.followerUsernames == ["bob"])
+    }
+
+    @Test func loadWithoutFollowerFilesGivesNilFollowers() throws {
+        let root = try makeFolder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write(Fixtures.followingJSON([("anna", 1)]), "following.json", in: root)
+
+        let snapshot = try ExportLocator.load(ExportLocator.locate(in: root))
+
+        #expect(snapshot.followers == nil)
+    }
+
+    @Test func loadDeduplicatesFollowersKeepingOldest() throws {
+        let root = try makeFolder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write(Fixtures.followingJSON([("anna", 1)]), "following.json", in: root)
+        try write(Fixtures.followersJSON([("aa", 200)]), "followers_1.json", in: root)
+        try write(Fixtures.followersJSON([("aa", 100)]), "followers_2.json", in: root)
+
+        let snapshot = try ExportLocator.load(ExportLocator.locate(in: root))
+
+        #expect(snapshot.followers?.count == 1)
+        #expect(snapshot.followers?.first?.followedSince == Date(timeIntervalSince1970: 100))
     }
 }

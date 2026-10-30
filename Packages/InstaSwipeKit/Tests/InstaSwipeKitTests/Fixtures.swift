@@ -31,6 +31,12 @@ enum Fixtures {
         return state
     }
 
+    static func followers(_ accounts: [FollowedAccount]) -> FollowerState {
+        var state = FollowerState.empty(now: referenceDate)
+        state.accounts = accounts
+        return state
+    }
+
     /// Export "following.json": object root, username in `title`, no `value`.
     static func followingJSON(_ entries: [(String, Int?)]) -> Data {
         let items: [[String: Any]] = entries.map { username, timestamp in
@@ -43,14 +49,18 @@ enum Fixtures {
 
     /// Export "followers_1.json": array root, empty `title`, username in `value`.
     static func followersJSON(_ usernames: [String]) -> Data {
-        let items: [[String: Any]] = usernames.map { username in
+        followersJSON(usernames.map { ($0, 1_600_000_000) })
+    }
+
+    static func followersJSON(_ entries: [(String, Int)]) -> Data {
+        let items: [[String: Any]] = entries.map { username, timestamp in
             [
                 "title": "",
                 "media_list_data": [],
                 "string_list_data": [[
                     "href": "https://www.instagram.com/\(username)",
                     "value": username,
-                    "timestamp": 1_600_000_000
+                    "timestamp": timestamp
                 ]]
             ]
         }

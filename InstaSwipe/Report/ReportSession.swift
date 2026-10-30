@@ -11,12 +11,7 @@ import UniformTypeIdentifiers
 final class ReportSession {
     var filter = ReportFilter.toDo
     var searchText = ""
-    /// Account whose profile was just opened in Instagram; the prompt waits for the app to come back.
-    private(set) var returnPromptUsername: String?
-    /// Account the "did you unfollow?" sheet is about; non-nil while the sheet is shown.
-    private(set) var promptUsername: String?
-
-    @ObservationIgnored private var hasLeftApp = false
+    let returnPrompt = ReturnPromptTracker()
     @ObservationIgnored private let model: AppModel
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private let calendar: Calendar
@@ -36,12 +31,17 @@ final class ReportSession {
 
     // MARK: State
 
+    private var activeList: AccountList? { model.list(model.listMode) }
+
+    /// Follower mode with no follower list: the view shows the reimport invite instead of the list.
+    var isAwaitingFollowerImport: Bool { model.isAwaitingFollowerImport }
+
     var rows: [FollowedAccount] {
-        model.state.map { Report.accounts(filter, search: searchText, in: $0) } ?? []
+        activeList.map { Report.accounts(filter, search: searchText, in: $0) } ?? []
     }
 
     func count(for filter: ReportFilter) -> Int {
-        model.state.map { Report.counts(in: $0)[filter] ?? 0 } ?? 0
+        activeList.map { Report.counts(in: $0)[filter] ?? 0 } ?? 0
     }
 
     func label(for filter: ReportFilter) -> String {
@@ -58,72 +58,78 @@ final class ReportSession {
         }
     }
 
-    var unfollowsToday: Int {
-        model.state.map { Report.unfollowsToday(in: $0, now: now(), calendar: calendar) } ?? 0
-    }
+    /// Unfollows plus follower removals marked today.
+    var unfollowsToday: Int { model.actionsToday(now: now(), calendar: calendar) }
 
-    var counterText: String { "Oggi: \(unfollowsToday) unfollow segnati" }
+    var counterText: String { "Oggi: \(unfollowsToday) azioni segnate" }
 
     var isOverDailyWarning: Bool { unfollowsToday >= Limits.dailyUnfollowWarning }
 
     // MARK: Actions
 
     func setUnfollowed(_ done: Bool, username: String) {
-        model.apply { Report.setUnfollowed(done, username: username, in: $0, now: now()) }
+        setUnfollowed(done, username: username, mode: model.listMode)
     }
 
     func decide(_ decision: Decision, username: String) {
-        model.apply { Review.decide(decision, username: username, in: $0, now: now()) }
+        decide(decision, username: username, mode: model.listMode)
     }
 
     func retryAvailability(username: String) {
-        model.apply { Review.markAvailability(.unknown, displayName: nil, username: username, in: $0) }
+        model.applyToBothLists {
+            Review.markAvailability(.unknown, displayName: nil, username: username, in: $0)
+        }
+    }
+
+    private func setUnfollowed(_ done: Bool, username: String, mode: ListMode) {
+        model.apply(mode) { Report.setUnfollowed(done, username: username, in: $0, now: now()) }
+    }
+
+    private func decide(_ decision: Decision, username: String, mode: ListMode) {
+        model.apply(mode) { Review.decide(decision, username: username, in: $0, now: now()) }
     }
 
     // MARK: Return from Instagram
 
+    /// Account whose profile was just opened in Instagram; the prompt waits for the app to come back.
+    var returnPromptUsername: String? { returnPrompt.pending?.username }
+    /// Account the "did you unfollow?" sheet is about; non-nil while the sheet is shown.
+    var promptUsername: String? { returnPrompt.prompt?.username }
+
     /// Returns the URL to open. Only accounts marked "Tolgo" get the return prompt.
     func open(_ account: FollowedAccount) -> URL {
-        returnPromptUsername = account.decision == .remove ? account.username : nil
-        hasLeftApp = false
+        returnPrompt.willOpen(account.decision == .remove ? .init(username: account.username, mode: model.listMode) : nil)
         return account.profileURL
     }
 
-    /// The `.active` that fires right after the tap is ignored: the prompt needs a real round trip.
     func scenePhaseChanged(_ phase: ScenePhase) {
-        guard returnPromptUsername != nil else { return }
-        switch phase {
-        case .inactive, .background:
-            hasLeftApp = true
-        case .active:
-            guard hasLeftApp else { return }
-            promptUsername = returnPromptUsername
-            returnPromptUsername = nil
-            hasLeftApp = false
-        @unknown default:
-            break
-        }
+        returnPrompt.scenePhaseChanged(phase)
     }
 
+    /// Acts on the list the profile was opened from, even if the mode changed meanwhile.
     func confirmUnfollowed() {
-        if let username = promptUsername { setUnfollowed(true, username: username) }
+        if let prompt = returnPrompt.prompt { setUnfollowed(true, username: prompt.username, mode: prompt.mode) }
         dismissPrompt()
     }
 
     func changeMindKeep() {
-        if let username = promptUsername { decide(.keep, username: username) }
+        if let prompt = returnPrompt.prompt { decide(.keep, username: prompt.username, mode: prompt.mode) }
         dismissPrompt()
     }
 
+    func promptTitle(for username: String) -> String {
+        (returnPrompt.prompt?.mode ?? model.listMode).returnPromptTitle(for: username)
+    }
+
     func dismissPrompt() {
-        promptUsername = nil
+        returnPrompt.dismiss()
     }
 
     // MARK: CSV
 
     /// Snapshot handed to the share sheet; the file is only written when the user actually shares.
     var csvExport: CSVExport {
-        CSVExport(accounts: model.state?.accounts ?? [], now: now(), timeZone: calendar.timeZone, directory: directory)
+        CSVExport(accounts: activeList?.accounts ?? [], mode: model.listMode, now: now(), timeZone: calendar.timeZone, directory: directory)
     }
 
     func writeCSV() throws -> URL { try csvExport.writeFile() }
@@ -131,6 +137,7 @@ final class ReportSession {
 
 struct CSVExport: Transferable, Sendable {
     let accounts: [FollowedAccount]
+    let mode: ListMode
     let now: Date
     let timeZone: TimeZone
     let directory: URL
@@ -140,12 +147,12 @@ struct CSVExport: Transferable, Sendable {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = timeZone
         formatter.dateFormat = "yyyy-MM-dd"
-        return "InstaSwipe-\(formatter.string(from: now)).csv"
+        return "\(mode.csvFilePrefix)-\(formatter.string(from: now)).csv"
     }
 
     func writeFile() throws -> URL {
         let url = directory.appendingPathComponent(fileName)
-        try CSVExporter.csv(for: accounts).write(to: url, atomically: true, encoding: .utf8)
+        try CSVExporter.csv(for: accounts, mode: mode).write(to: url, atomically: true, encoding: .utf8)
         return url
     }
 

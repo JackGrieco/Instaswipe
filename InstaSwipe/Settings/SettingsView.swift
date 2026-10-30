@@ -29,10 +29,10 @@ struct SettingsView: View {
                     )
                 }
                 Section {
-                    Toggle("Togli il follow subito", isOn: $isInstantUnfollowEnabled)
+                    Toggle("Togli subito", isOn: $isInstantUnfollowEnabled)
                         .accessibilityIdentifier("instantUnfollowToggle")
                 } footer: {
-                    Text("Quando scarti un account si apre il suo profilo: togli il follow e tocca Fatto. Ogni apertura conta nei profili del giorno.")
+                    Text("Quando scarti un account si apre il suo profilo. Per chi segui: togli il follow e tocca Fatto (ogni apertura conta nei profili del giorno). Per i follower si apre l'app di Instagram: tocca ⋯ → «Rimuovi follower» e torna qui.")
                 }
                 Section {
                     Button("Come esportare da Instagram") { isShowingTutorial = true }

@@ -6,13 +6,16 @@ struct MergeSummaryView: View {
     let preview: MergePreview
 
     private var summary: MergeSummary { preview.summary }
+    private var followerSummary: MergeSummary? { model.pendingFollowerMerge?.summary }
+    private var isSuspicious: Bool { summary.isSuspicious || followerSummary?.isSuspicious == true }
 
     var body: some View {
         VStack(spacing: 0) {
             navRow
             hero.padding(.top, 28)
-            if summary.isSuspicious { suspiciousWarning.padding(.top, 28) }
-            rows.padding(.top, summary.isSuspicious ? 14 : 28)
+            if isSuspicious { suspiciousWarning.padding(.top, 28) }
+            rows.padding(.top, isSuspicious ? 14 : 28)
+            if let followerSummary { followerRows(followerSummary).padding(.top, 14) }
             Spacer(minLength: 24)
             Button("Inizia a swipare") { model.confirmImport() }
                 .buttonStyle(GradientButtonStyle())
@@ -78,6 +81,24 @@ struct MergeSummaryView: View {
         }
         .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Theme.surface))
         .themeShadow()
+    }
+
+    private func followerRows(_ followers: MergeSummary) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Follower")
+                .font(.outfit(15, .semibold))
+                .foregroundStyle(Theme.ink2)
+                .padding(.horizontal, 4)
+                .accessibilityAddTraits(.isHeader)
+            VStack(spacing: 0) {
+                row("Nuovi follower", followers.newAccounts, showsSeparator: false)
+                row("Non ti seguono più", followers.noLongerFollowed)
+                row("Segnati come già rimossi", followers.autoMarkedDone)
+                if followers.refollowed > 0 { row("Tornati a seguirti", followers.refollowed) }
+            }
+            .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Theme.surface))
+            .themeShadow()
+        }
     }
 
     private func row(_ title: String, _ value: Int, showsSeparator: Bool = true) -> some View {

@@ -7,10 +7,21 @@ public enum StateStoreError: Error, Equatable {
     case cloudNotDownloaded
 }
 
+public typealias FileStateStore = FileDocumentStore<AppState>
+public typealias FollowerStore = FileDocumentStore<FollowerState>
+
 /// Local atomic persistence with an optional iCloud mirror. Never deletes or
 /// overwrites a file it could not read: unreadable files are renamed aside.
-public final class FileStateStore: Sendable {
-    static let fileName = "state.json"
+public final class FileDocumentStore<Document: StoredDocument>: Sendable {
+    private static var fileName: String { Document.fileName }
+    /// `state.json` → `state.corrupt-`.
+    private static var quarantinePrefix: String { prefix("corrupt") }
+    /// `state.json` → `state.discarded-`: set aside for good, no longer blocks `load()`.
+    private static var discardPrefix: String { prefix("discarded") }
+
+    private static func prefix(_ tag: String) -> String {
+        "\((fileName as NSString).deletingPathExtension).\(tag)-"
+    }
 
     private let localDirectory: URL
     private let cloudDirectory: URL?
@@ -22,12 +33,18 @@ public final class FileStateStore: Sendable {
 
     private enum Candidate {
         case absent
-        case valid(AppState)
+        case valid(Document)
         case quarantined(URL)
     }
 
-    /// `nil` only when no state file, placeholder or quarantined file exists anywhere.
-    public func load() throws -> AppState? {
+    /// True when this device has its own copy of the document (readable or not). Read it before
+    /// `load()`, which also saves a copy taken from iCloud locally.
+    public var hasLocalCopy: Bool {
+        FileManager.default.fileExists(atPath: localDirectory.appendingPathComponent(Self.fileName).path)
+    }
+
+    /// `nil` only when no document file, placeholder or quarantined file exists anywhere.
+    public func load() throws -> Document? {
         let local = try inspect(directory: localDirectory, isCloud: false)
         if try isCloudPending() {
             if case let .valid(localState) = local { return localState }
@@ -52,15 +69,25 @@ public final class FileStateStore: Sendable {
         }
     }
 
-    public func save(_ state: AppState) throws {
-        let data = try StateCoding.encoder().encode(state)
+    /// Renames every quarantined copy (local and iCloud) to `<name>.discarded-<stamp>.json`, so
+    /// `load()` stops reporting them. Never deletes. For when no backup can replace the document.
+    /// Returns the new URLs.
+    public func discardQuarantined() throws -> [URL] {
+        let directories = [(localDirectory, false)] + (cloudDirectory.map { [($0, true)] } ?? [])
+        return try directories.flatMap { directory, isCloud in
+            try quarantined(in: directory).map { try moveAside($0, prefix: Self.discardPrefix, isCloud: isCloud) }
+        }
+    }
+
+    public func save(_ document: Document) throws {
+        let data = try StateCoding.encoder().encode(document)
         try FileManager.default.createDirectory(at: localDirectory, withIntermediateDirectories: true)
         try data.write(to: localDirectory.appendingPathComponent(Self.fileName), options: .atomic)
     }
 
-    public func mirrorToCloud(_ state: AppState) throws {
+    public func mirrorToCloud(_ document: Document) throws {
         guard let cloudDirectory else { return }
-        let data = try StateCoding.encoder().encode(state)
+        let data = try StateCoding.encoder().encode(document)
         try FileManager.default.createDirectory(at: cloudDirectory, withIntermediateDirectories: true)
         let target = cloudDirectory.appendingPathComponent(Self.fileName)
 
@@ -110,10 +137,10 @@ public final class FileStateStore: Sendable {
         let file = directory.appendingPathComponent(Self.fileName)
         guard FileManager.default.fileExists(atPath: file.path) else { return .absent }
         let data = isCloud ? try coordinatedRead(file) : try? Data(contentsOf: file)
-        if let data, let state = try? StateCoding.decoder().decode(AppState.self, from: data) {
+        if let data, let state = try? StateCoding.decoder().decode(Document.self, from: data) {
             return .valid(state)
         }
-        return .quarantined(try quarantine(file, isCloud: isCloud))
+        return .quarantined(try moveAside(file, prefix: Self.quarantinePrefix, isCloud: isCloud))
     }
 
     /// A read failure inside the coordinator is treated as unreadable (returns nil);
@@ -130,10 +157,10 @@ public final class FileStateStore: Sendable {
         return data
     }
 
-    /// Renames `file` to `state.corrupt-<stamp>.json`, adding `-2`, `-3`... if taken.
-    private func quarantine(_ file: URL, isCloud: Bool) throws -> URL {
+    /// Renames `file` to `<prefix><stamp>.json`, adding `-2`, `-3`... if taken.
+    private func moveAside(_ file: URL, prefix: String, isCloud: Bool) throws -> URL {
         let directory = file.deletingLastPathComponent()
-        let base = "state.corrupt-\(FileNameStamp.timestamp(Date()))"
+        let base = "\(prefix)\(FileNameStamp.timestamp(Date()))"
         var destination = directory.appendingPathComponent("\(base).json")
         var attempt = 2
         while FileManager.default.fileExists(atPath: destination.path) {
@@ -157,14 +184,17 @@ public final class FileStateStore: Sendable {
         return destination
     }
 
-    /// All `state.corrupt-*.json` files in both directories, sorted by path.
+    /// All `<name>.corrupt-*.json` files in both directories, sorted by path.
     private func existingQuarantined() -> [URL] {
         let directories = [localDirectory] + (cloudDirectory.map { [$0] } ?? [])
-        return directories.flatMap { directory -> [URL] in
-            let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
-            return names
-                .filter { $0.hasPrefix("state.corrupt-") && $0.hasSuffix(".json") }
-                .map { directory.appendingPathComponent($0) }
-        }.sorted { $0.path < $1.path }
+        return directories.flatMap(quarantined(in:)).sorted { $0.path < $1.path }
+    }
+
+    private func quarantined(in directory: URL) -> [URL] {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        return names
+            .filter { $0.hasPrefix(Self.quarantinePrefix) && $0.hasSuffix(".json") }
+            .sorted()
+            .map { directory.appendingPathComponent($0) }
     }
 }

@@ -5,6 +5,11 @@ import Foundation
 @Suite struct CSVExporterTests {
     private static let header = "username,link,data follow,decisione,fatto,ti segue"
 
+    @Test func followersHeader() {
+        let csv = CSVExporter.csv(for: [], mode: .followers)
+        #expect(csv == "username,link,ti segue dal,decisione,fatto,lo segui")
+    }
+
     @Test func csvHasExactHeaderAndEscapes() {
         let csv = CSVExporter.csv(for: [])
         #expect(csv.components(separatedBy: "\n")[0] == Self.header)

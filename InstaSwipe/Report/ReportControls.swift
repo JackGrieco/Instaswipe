@@ -1,7 +1,7 @@
 import InstaSwipeKit
 import SwiftUI
 
-/// "Oggi: N unfollow segnati" with a meter up to the daily warning, orange once past it.
+/// "Oggi: N azioni segnate" with a meter up to the daily warning, orange once past it.
 struct ReportCounterCard: View {
     let session: ReportSession
 
@@ -24,10 +24,7 @@ struct ReportCounterCard: View {
                 fill: session.isOverDailyWarning ? AnyShapeStyle(Theme.warningFill) : AnyShapeStyle(Theme.brandGradient)
             )
             if session.isOverDailyWarning {
-                Text("Hai superato i \(Limits.dailyUnfollowWarning) di oggi: meglio fermarsi per evitare blocchi da Instagram.")
-                    .font(.outfit(13))
-                    .foregroundStyle(Theme.warningText)
-                    .fixedSize(horizontal: false, vertical: true)
+                DailyLimitWarning()
             }
         }
         .padding(.horizontal, 18)

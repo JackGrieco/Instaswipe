@@ -152,7 +152,8 @@ struct LoadErrorView: View {
     }
 
     private var restoreMessage: String {
-        let decided = model.pendingRestore?.state.accounts.filter { $0.decision != .pending }.count ?? 0
+        let accounts = (model.pendingRestore?.state.accounts ?? []) + (model.pendingRestore?.followers?.accounts ?? [])
+        let decided = accounts.filter { $0.decision != .pending }.count
         return "Contiene \(decided) decisioni. Diventerà il tuo stato attuale; i file illeggibili restano da parte."
     }
 }

@@ -39,6 +39,40 @@ struct CloudMirrorTests {
         #expect(model.bannerMessage == nil)
     }
 
+    @Test func flushWritesFollowersToCloudToo() async throws {
+        let local = try TestSupport.makeDirectory()
+        let cloud = try TestSupport.makeDirectory()
+        try seed(local, usernames: ["a"])
+        var followers = FollowerState.empty(now: Date(timeIntervalSince1970: 1_700_000_000))
+        followers.accounts = [FollowedAccount(
+            username: "f", profileURL: URL(string: "https://www.instagram.com/_u/f")!, followedSince: nil
+        )]
+        try FollowerStore(localDirectory: local, cloudDirectory: nil).save(followers)
+        let model = AppModel(environment: TestSupport.environment(local: local, cloud: cloud))
+
+        model.apply(.followers) { Review.decide(.remove, username: "f", in: $0, now: Date()) }
+        await model.flushCloudMirror()
+
+        let data = try Data(contentsOf: cloud.appendingPathComponent("followers.json"))
+        let mirrored = try StateCoding.decoder().decode(FollowerState.self, from: data)
+        #expect(mirrored.accounts.map(\.decision) == [.remove])
+        #expect(try cloudState(cloud).accounts.map(\.username) == ["a"])
+        #expect(model.bannerMessage == nil)
+    }
+
+    @Test func flushWithoutFollowersWritesNoFollowersFile() async throws {
+        let local = try TestSupport.makeDirectory()
+        let cloud = try TestSupport.makeDirectory()
+        try seed(local, usernames: ["a"])
+        let model = AppModel(environment: TestSupport.environment(local: local, cloud: cloud))
+
+        model.apply { Review.decide(.keep, username: "a", in: $0, now: Date()) }
+        await model.flushCloudMirror()
+
+        #expect(FileManager.default.fileExists(atPath: cloud.appendingPathComponent("state.json").path))
+        #expect(!FileManager.default.fileExists(atPath: cloud.appendingPathComponent("followers.json").path))
+    }
+
     @Test func flushWithoutCloudDoesNothing() async throws {
         let local = try TestSupport.makeDirectory()
         try seed(local, usernames: ["a"])

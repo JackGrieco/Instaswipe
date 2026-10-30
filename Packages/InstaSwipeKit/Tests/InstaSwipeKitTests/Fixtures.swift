@@ -31,6 +31,12 @@ enum Fixtures {
         return state
     }
 
+    static func followers(_ accounts: [FollowedAccount]) -> FollowerState {
+        var state = FollowerState.empty(now: referenceDate)
+        state.accounts = accounts
+        return state
+    }
+
     /// Export "following.json": object root, username in `title`, no `value`.
     static func followingJSON(_ entries: [(String, Int?)]) -> Data {
         let items: [[String: Any]] = entries.map { username, timestamp in

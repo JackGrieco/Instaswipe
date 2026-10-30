@@ -14,6 +14,8 @@ final class SwipeSession {
 
     static let maxLoadsInFlight = 2
     static let scopeDefaultsKey = "swipeScope"
+    /// The "Togli il follow subito" switch in Settings: a remove opens the profile to unfollow by hand.
+    static let instantUnfollowDefaultsKey = "instantUnfollow"
 
     private(set) var results: [String: ProfilePageResult] = [:]
     private(set) var inFlight: Set<String> = []
@@ -22,6 +24,8 @@ final class SwipeSession {
     var isLoginPresented = false
     var isLimitAlertPresented = false
     private(set) var profilePageURL: URL?
+    /// Set when the open profile page is there to unfollow that account, not just to look at it.
+    private(set) var unfollowUsername: String?
     /// A view preference, not review data: kept in `UserDefaults`, outside `AppState` and its iCloud mirror.
     private(set) var scope: ReviewScope {
         didSet {
@@ -113,6 +117,14 @@ final class SwipeSession {
         return (counts[.kept] ?? 0, counts[.toDo] ?? 0, counts[.gone] ?? 0)
     }
 
+    var isInstantUnfollowEnabled: Bool { defaults.bool(forKey: Self.instantUnfollowDefaultsKey) }
+
+    var unfollowsToday: Int {
+        model.state.map { Report.unfollowsToday(in: $0, now: now(), calendar: calendar) } ?? 0
+    }
+
+    var isOverDailyUnfollowWarning: Bool { unfollowsToday >= Limits.dailyUnfollowWarning }
+
     // MARK: Labels
 
     var progressLabel: String {
@@ -151,7 +163,11 @@ final class SwipeSession {
         model.apply { Review.decide(decision, username: username, in: $0, now: date) }
         loadVisibleProfiles()
         let account = model.state?.accounts.first { $0.username == username }
-        return account?.decision == decision && account?.decidedAt == date
+        let isApplied = account?.decision == decision && account?.decidedAt == date
+        if isApplied, decision == .remove, isInstantUnfollowEnabled, openProfilePage(username) {
+            unfollowUsername = username
+        }
+        return isApplied
     }
 
     func undo() {
@@ -162,17 +178,21 @@ final class SwipeSession {
 
     /// Tap on the card: opening the real profile counts as a load in the budget.
     func requestProfilePage() {
-        guard !isOfflineSession, let username = current?.username else { return }
-        guard case .available = budgetStatus else {
-            isLimitAlertPresented = true
-            return
+        guard let username = current?.username else { return }
+        openProfilePage(username)
+    }
+
+    /// "Fatto" on an instant-unfollow page: the user unfollowed on Instagram, so it leaves "Da fare".
+    func confirmUnfollowed() {
+        if let username = unfollowUsername {
+            model.apply { Report.setUnfollowed(true, username: username, in: $0, now: now()) }
         }
-        recordLoad()
-        profilePageURL = URL(string: "https://www.instagram.com/\(username)/")
+        closeProfilePage()
     }
 
     func closeProfilePage() {
         profilePageURL = nil
+        unfollowUsername = nil
     }
 
     func loginDismissed() {
@@ -181,6 +201,19 @@ final class SwipeSession {
     }
 
     // MARK: Loading
+
+    /// Returns false when nothing opened: offline session, or today's budget is used up (the alert says so).
+    @discardableResult
+    private func openProfilePage(_ username: String) -> Bool {
+        guard !isOfflineSession else { return false }
+        guard case .available = budgetStatus else {
+            isLimitAlertPresented = true
+            return false
+        }
+        recordLoad()
+        profilePageURL = URL(string: "https://www.instagram.com/\(username)/")
+        return profilePageURL != nil
+    }
 
     private func recordLoad() {
         model.apply { ProfileBudget.recordLoad(in: $0, now: now(), calendar: calendar) }

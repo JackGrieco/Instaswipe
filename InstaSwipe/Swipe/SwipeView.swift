@@ -8,7 +8,7 @@ struct SwipeView: View {
 
     init(model: AppModel, onShowToRemove: @escaping () -> Void) {
         let loader: any ProfileLoading = model.environment.useFakeProfiles ? FakeProfileLoader() : WebProfileLoader()
-        _session = State(initialValue: SwipeSession(model: model, loader: loader))
+        _session = State(initialValue: SwipeSession(model: model, loader: loader, defaults: model.environment.defaults))
         self.onShowToRemove = onShowToRemove
     }
 
@@ -57,9 +57,19 @@ struct SwipeView: View {
         if let url = session.profilePageURL {
             NavigationStack {
                 WebView(url: url)
+                    .navigationTitle(session.unfollowUsername.map { "@\($0)" } ?? "")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .topBarTrailing) { Button("Chiudi") { session.closeProfilePage() } }
+                    }
+                    .safeAreaInset(edge: .bottom) {
+                        if session.unfollowUsername != nil {
+                            UnfollowBar(
+                                unfollowsToday: session.unfollowsToday,
+                                isOverDailyWarning: session.isOverDailyUnfollowWarning,
+                                onDone: session.confirmUnfollowed
+                            )
+                        }
                     }
             }
         }

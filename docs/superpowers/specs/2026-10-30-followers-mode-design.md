@@ -70,8 +70,11 @@ Oggi InstaSwipe ripulisce solo chi *segui*. È arrivata la richiesta di fare lo 
 ### "Togli subito"
 
 - L'interruttore "Togli il follow subito" nelle Impostazioni vale per entrambe le modalità. *(Mia scelta)* Etichetta e spiegazione vanno rese generiche (es. "Togli subito": "scartando un account si apre il suo profilo per togliere il follow o rimuoverlo dai follower").
-- In modalità Follower, uno swipe "tolgo" apre il profilo e la barra in basso (`UnfollowBar`) dice "⋯ in alto → «Rimuovi follower», poi Fatto". "Fatto" segna la rimozione come fatta, e quindi aggiorna "ti segue" nella carta Following.
-- **Da verificare all'inizio della costruzione**: sull'app di Instagram la voce esiste (profilo → ⋯ → «Rimuovi follower»), ma l'app apre il profilo nella WebView di `instagram.com`. Se nella versione web la voce manca, in modalità Follower "Togli subito" apre invece il profilo nell'app di Instagram (link `_u/`, come fa la lista "da togliere") e al ritorno compare la domanda "L'hai rimosso?" già usata dalla lista (`ReturnPromptSheet`). La verifica si fa sull'iPhone dell'utente, con una sessione Instagram attiva.
+- **La rimozione si fa solo dall'app di Instagram** (verificato dall'utente: nella WebView di `instagram.com` la voce «Rimuovi follower» non c'è; nell'app sta in profilo → ⋯ → «Rimuovi follower»).
+- Quindi, in modalità Follower, uno swipe "tolgo" con "Togli subito" acceso **non** apre la WebView né `UnfollowBar`. Apre il profilo nell'app di Instagram (il link `_u/` in `profileURL`, come fa già la lista "da togliere"), e al ritorno in InstaSwipe compare la domanda "L'hai rimosso?" (`ReturnPromptSheet`, stesso meccanismo di ritorno di `ReportSession`). "Sì" la segna come fatta, e quindi la carta Following perde "ti segue". "Ho cambiato idea" la segna "tengo". Chiudere la domanda la lascia "da fare".
+- *(Mia scelta)* Aprire l'app di Instagram non consuma il budget dei profili, perché non è un caricamento fatto da InstaSwipe. Oggi infatti la lista "da togliere" non lo conta.
+- Il testo nelle Impostazioni deve dire che, per i follower, si apre l'app di Instagram.
+- In modalità Following non cambia nulla: WebView + `UnfollowBar` come oggi.
 
 ### Lista "da togliere" in modalità Follower
 
@@ -81,7 +84,7 @@ Oggi InstaSwipe ripulisce solo chi *segui*. È arrivata la richiesta di fare lo 
 
 ### Limite giornaliero
 
-- L'avviso oltre `Limits.dailyUnfollowWarning` (150) vale sulla **somma** di unfollow e rimozioni segnati oggi. Il contatore lo dice in modo neutro (es. "Oggi: N azioni segnate") sia nella lista sia nella barra di "Togli subito".
+- L'avviso oltre `Limits.dailyUnfollowWarning` (150) vale sulla **somma** di unfollow e rimozioni segnati oggi. Il contatore lo dice in modo neutro (es. "Oggi: N azioni segnate") sia nella lista sia nella barra di "Togli subito" dei following.
 
 ## Vincoli
 
